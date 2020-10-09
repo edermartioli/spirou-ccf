@@ -248,8 +248,8 @@ def run_sci_ccf(tfile, sci_mask, plot=False, verbose=False) :
 def get_rv_drifts(tfits) :
     loc = {}
     
-    abspath = os.path.abspath(tfile)
-    tfilebasename = os.path.basename(tfile)
+    abspath = os.path.abspath(tfits)
+    tfilebasename = os.path.basename(tfits)
     
     fpfits = abspath +'/'+tfilebasename.replace("t.fits","_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
     efits = abspath +'/'+tfilebasename.replace("t.fits","e.fits")
