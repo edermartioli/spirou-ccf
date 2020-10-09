@@ -313,10 +313,17 @@ if options.verbose:
 inputdata = sorted(glob.glob(options.input))
 
 inputfp = (options.input).replace("t.fits","_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
+
 inputfpdata = sorted(glob.glob(inputfp))
+
+print("fp pattern=",inputfp)
+
+
 if len(inputfp) != len(inputdata) :
     inputfpdata = deepcopy(inputdata)
     for i in range(len(inputdata)) : inputfpdata[i] = ""
+
+print(inputfpdata)
 
 # First bunch up all input spectra of the same object and check type of data
 collections, objtemps, arg_max_snr = generate_collection(inputdata, verbose=True)
@@ -367,7 +374,7 @@ for object in collections['object'] :
         if options.verbose :
             print("Running CCF on file {0}/{1}:{2}".format(i,len(file_list)-1,os.path.basename(file_list[i])))
 
-        sci_ccf = run_sci_ccf(file_list[i], mask_file, fpfits=inputfpdata[refexp])
+        sci_ccf = run_sci_ccf(file_list[i], mask_file, fpfits=inputfpdata[i])
 
         if options.verbose:
             print("Spectrum: {0} DATE={1} SNR={2:.0f} Sci_RV={3:.5f}km/s RV_DRIFT={4}km/s".format(os.path.basename(file_list[i]), sci_ccf["header"]["DATE"],sci_ccf["header"]["SPEMSNR"], sci_ccf["header"]['RV_OBJ'], sci_ccf["header"]["RV_DRIFT"]))
