@@ -312,20 +312,6 @@ if options.verbose:
     print("Creating list of t.fits spectrum files...")
 inputdata = sorted(glob.glob(options.input))
 
-inputfp = (options.input).replace("t.fits","fp_mask_C.fits")
-
-inputfpdata = sorted(glob.glob(inputfp))
-
-print("fp pattern=",inputfp)
-
-print(inputfpdata)
-
-if len(inputfp) != len(inputdata) :
-    inputfpdata = deepcopy(inputdata)
-    for i in range(len(inputdata)) : inputfpdata[i] = ""
-
-print(inputfpdata)
-
 # First bunch up all input spectra of the same object and check type of data
 collections, objtemps, arg_max_snr = generate_collection(inputdata, verbose=True)
 
@@ -351,10 +337,10 @@ for object in collections['object'] :
     if options.verbose :
         print("Running CCF on reference exposure:{}".format(os.path.basename(file_list[refexp])))
 
-    #fpfits = file_list[refexp].replace("t.fits","_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
+    fpfits = file_list[refexp].replace("t.fits","_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
 
     # Run ccf on the reference spectrum, i.e., the one with maximum SNR:
-    ref_sci_ccf = run_sci_ccf(file_list[refexp], mask_file, fpfits=inputfpdata[refexp], plot=options.plot)
+    ref_sci_ccf = run_sci_ccf(file_list[refexp], mask_file, fpfits=fpfits, plot=options.plot)
 
     # Set systemic velocity to the RV measured on the reference exposure
     rv_sys = ref_sci_ccf["header"]['RV_OBJ']
@@ -375,7 +361,8 @@ for object in collections['object'] :
         if options.verbose :
             print("Running CCF on file {0}/{1}:{2}".format(i,len(file_list)-1,os.path.basename(file_list[i])))
 
-        sci_ccf = run_sci_ccf(file_list[i], mask_file, fpfits=inputfpdata[i])
+        fpfits = file_list[i].replace("t.fits","_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
+        sci_ccf = run_sci_ccf(file_list[i], mask_file, fpfits=fpfits)
 
         if options.verbose:
             print("Spectrum: {0} DATE={1} SNR={2:.0f} Sci_RV={3:.5f}km/s RV_DRIFT={4}km/s".format(os.path.basename(file_list[i]), sci_ccf["header"]["DATE"],sci_ccf["header"]["SPEMSNR"], sci_ccf["header"]['RV_OBJ'], sci_ccf["header"]["RV_DRIFT"]))
