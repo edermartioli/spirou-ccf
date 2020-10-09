@@ -1118,7 +1118,7 @@ def fitorbit(bjd, rvs, rverrs, guess=[], fixed_period=True, period=10., plot=Tru
         else :
             def orbit_model (t, a, b, t0, per):
                 return a + b * np.sin(2*np.pi*(t-t0)/per)
-            a0, b0, t0, p0 = np.mean(rvs), np.abs(np.max(rvs) - np.min(rvs)), period, bjd[0]
+            a0, b0, t0, p0 = np.mean(rvs), np.abs(np.max(rvs) - np.min(rvs)), bjd[0], period
             guess = [a0, b0, t0, p0]
 
     pfit, pcov = curve_fit(orbit_model, bjd, rvs, p0=guess)
