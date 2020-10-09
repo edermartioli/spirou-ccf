@@ -251,8 +251,11 @@ def get_rv_drifts(tfits) :
     abspath = os.path.abspath(tfits)
     tfilebasename = os.path.basename(tfits)
     
-    fpfits = abspath +'/'+tfilebasename.replace("t.fits","_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
-    efits = abspath +'/'+tfilebasename.replace("t.fits","e.fits")
+    #fpfits = abspath +'/'+tfilebasename.replace("t.fits","_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
+    #efits = abspath +'/'+tfilebasename.replace("t.fits","e.fits")
+    
+    fpfits = tfilebasename.replace("t.fits","_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
+    efits = tfilebasename.replace("t.fits","e.fits")
     
     print(fpfits, efits)
     
