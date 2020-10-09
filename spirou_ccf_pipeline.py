@@ -361,7 +361,7 @@ for object in collections['object'] :
         if options.verbose :
             print("Running CCF on file {0}/{1}:{2}".format(i,len(file_list)-1,os.path.basename(file_list[i])))
 
-        fpfits = file_list[i].replace("t.fits","_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
+        fpfits = file_list[i].replace("t.fits","o_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
         sci_ccf = run_sci_ccf(file_list[i], mask_file, fpfits=fpfits)
 
         if options.verbose:
