@@ -256,13 +256,9 @@ def get_rv_drifts(tfits, fpfits="") :
         
         hdr = fits.getheader(fpfits)
         
-        if "WFPDRIFT" in hdr.keys() :
-            loc["WFPDRIFT"] = hdr["WFPDRIFT"]
-        else :
-            loc["WFPDRIFT"] = 'None'
-
-        loc["RV_WAVFP"] = hdr["RV_WAVFP"]
-        loc["RV_SIMFP"] = hdr["RV_SIMFP"]
+        loc["WFPDRIFT"] = 'None'
+        loc["RV_WAVFP"] = 'None'
+        loc["RV_SIMFP"] = 'None'
         loc["RV_DRIFT"] = hdr["RV_DRIFT"]
     
     else :
