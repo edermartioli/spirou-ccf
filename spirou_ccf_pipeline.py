@@ -312,12 +312,13 @@ if options.verbose:
     print("Creating list of t.fits spectrum files...")
 inputdata = sorted(glob.glob(options.input))
 
-inputfp = (options.input).replace("t.fits","_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
+inputfp = (options.input).replace("t.fits","fp_mask_C.fits")
 
 inputfpdata = sorted(glob.glob(inputfp))
 
 print("fp pattern=",inputfp)
 
+print(inputfpdata)
 
 if len(inputfp) != len(inputdata) :
     inputfpdata = deepcopy(inputdata)
