@@ -254,11 +254,11 @@ def get_rv_drifts(tfits, fpfits="") :
     if fpfits != "" and os.path.exists(fpfits) :
         print("Getting RV_DRIFT from file:{}".format(fpfits))
         
-        hdr = fits.getheader(fpfits)
+        hdr = fits.getheader(fpfits,1)
         
-        loc["WFPDRIFT"] = 'None'
-        loc["RV_WAVFP"] = 'None'
-        loc["RV_SIMFP"] = 'None'
+        loc["WFPDRIFT"] = "None"
+        loc["RV_WAVFP"] = hdr["RV_WAVFP"]
+        loc["RV_SIMFP"] = hdr["RV_SIMFP"]
         loc["RV_DRIFT"] = hdr["RV_DRIFT"]
     
     else :
