@@ -10,7 +10,7 @@
     
     Simple usage example:
     
-    python $PATH/spirou_ccf_pipeline.py --input=*e.fits
+    python $PATH/spirou_ccf_pipeline.py --input=*t.fits
     
     """
 
@@ -251,34 +251,40 @@ def get_rv_drifts(tfits) :
     efits = tfits.replace("t.fits","e.fits")
     
     if os.path.exists(fpfits) :
+        print("Getting RV_DRIFT from file:{}".format(fpfits))
+        
         hdr = fits.getheader(fpfits)
+        
         loc["WFPDRIFT"] = hdr["WFPDRIFT"]
         loc["RV_WAVFP"] = hdr["RV_WAVFP"]
         loc["RV_SIMFP"] = hdr["RV_SIMFP"]
         loc["RV_DRIFT"] = hdr["RV_DRIFT"]
     
-    elif os.path.exists(efits) :
-        calib_ccf = run_cal_ccf(efits, fp_mask, plot=False, verbose=False)
-        hdr = fits.getheader(tfits)
-        if "WFPDRIFT" in hdr.keys() :
-            loc["WFPDRIFT"] = hdr["WFPDRIFT"]
-        else :
-            loc["WFPDRIFT"] = 'None'
-
-        if "WFPDRIFT" in hdr.keys() :
-            loc["RV_WAVFP"] = hdr["RV_WAVFP"]
-        else :
-            loc["RV_WAVFP"] = 'None'
-
-        loc["RV_SIMFP"] = calib_ccf["header"]['RV_OBJ']
-        loc["RV_DRIFT"] = calib_ccf["header"]['RV_OBJ']
-            
     else :
-        print("WARNING: could not find {} nor {}, setting RV drift = 0.".format(fpfits, efits))
-        loc["WFPDRIFT"] ='None'
-        loc["RV_WAVFP"] = 'None'
-        loc["RV_SIMFP"] = 'None'
-        loc["RV_DRIFT"] = 0.
+
+        if os.path.exists(efits) :
+            print("Measuring RV_DRIFT in spectrum: {}".format(efits))
+            calib_ccf = run_cal_ccf(efits, fp_mask, plot=False, verbose=False)
+            hdr = fits.getheader(tfits)
+            if "WFPDRIFT" in hdr.keys() :
+                loc["WFPDRIFT"] = hdr["WFPDRIFT"]
+            else :
+                loc["WFPDRIFT"] = 'None'
+
+            if "WFPDRIFT" in hdr.keys() :
+                loc["RV_WAVFP"] = hdr["RV_WAVFP"]
+            else :
+                loc["RV_WAVFP"] = 'None'
+
+            loc["RV_SIMFP"] = calib_ccf["header"]['RV_OBJ']
+            loc["RV_DRIFT"] = calib_ccf["header"]['RV_OBJ']
+            
+        else :
+            print("WARNING: could not find {} nor {}, setting RV drift = 0.".format(fpfits, efits))
+            loc["WFPDRIFT"] ='None'
+            loc["RV_WAVFP"] = 'None'
+            loc["RV_SIMFP"] = 'None'
+            loc["RV_DRIFT"] = 0.
 
     return loc
 
