@@ -30,6 +30,7 @@ import numpy as np
 import spiroulib
 import ccf_lib
 import ccf2rv
+from copy import deepcopy
 
 spirou_ccf_dir = os.path.dirname(__file__) + '/'
 
@@ -224,10 +225,10 @@ def run_cal_ccf(efile, fp_mask, plot=False, verbose=False) :
     return calib_ccf
 
 
-def run_sci_ccf(tfile, sci_mask, plot=False, verbose=False) :
+def run_sci_ccf(tfile, sci_mask, fpfits="", plot=False, verbose=False) :
 
     # try to get rv drifts
-    rv_drifts = get_rv_drifts(tfile)
+    rv_drifts = get_rv_drifts(tfile, fpfits=fpfits)
 
     ####################################
     # First run CCF on the science fiber:
@@ -245,21 +246,12 @@ def run_sci_ccf(tfile, sci_mask, plot=False, verbose=False) :
     return sci_ccf
 
 
-def get_rv_drifts(tfits) :
+def get_rv_drifts(tfits, fpfits="") :
     loc = {}
     
-    abspath = os.path.abspath(tfits)
-    tfilebasename = os.path.basename(tfits)
+    efits = tfits.replace("t.fits","e.fits")
     
-    #fpfits = abspath +'/'+tfilebasename.replace("t.fits","_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
-    #efits = abspath +'/'+tfilebasename.replace("t.fits","e.fits")
-    
-    fpfits = tfilebasename.replace("t.fits","_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
-    efits = tfilebasename.replace("t.fits","e.fits")
-    
-    print(fpfits, efits)
-    
-    if os.path.exists(fpfits) :
+    if fpfits != "" and os.path.exists(fpfits) :
         print("Getting RV_DRIFT from file:{}".format(fpfits))
         
         hdr = fits.getheader(fpfits)
@@ -320,6 +312,12 @@ if options.verbose:
     print("Creating list of t.fits spectrum files...")
 inputdata = sorted(glob.glob(options.input))
 
+inputfp = (options.input).replace("t.fits","_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
+inputfpdata = sorted(glob.glob(inputfp))
+if len(inputfp) != len(inputdata) :
+    inputfpdata = deepcopy(inputdata)
+    for i in range(len(inputdata)) : inputfpdata[i] = ""
+
 # First bunch up all input spectra of the same object and check type of data
 collections, objtemps, arg_max_snr = generate_collection(inputdata, verbose=True)
 
@@ -344,8 +342,11 @@ for object in collections['object'] :
 
     if options.verbose :
         print("Running CCF on reference exposure:{}".format(os.path.basename(file_list[refexp])))
+
+    #fpfits = file_list[refexp].replace("t.fits","_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
+
     # Run ccf on the reference spectrum, i.e., the one with maximum SNR:
-    ref_sci_ccf = run_sci_ccf(file_list[refexp], mask_file, plot=options.plot)
+    ref_sci_ccf = run_sci_ccf(file_list[refexp], mask_file, fpfits=inputfpdata[refexp], plot=options.plot)
 
     # Set systemic velocity to the RV measured on the reference exposure
     rv_sys = ref_sci_ccf["header"]['RV_OBJ']
@@ -366,7 +367,7 @@ for object in collections['object'] :
         if options.verbose :
             print("Running CCF on file {0}/{1}:{2}".format(i,len(file_list)-1,os.path.basename(file_list[i])))
 
-        sci_ccf = run_sci_ccf(file_list[i], mask_file)
+        sci_ccf = run_sci_ccf(file_list[i], mask_file, fpfits=inputfpdata[refexp])
 
         if options.verbose:
             print("Spectrum: {0} DATE={1} SNR={2:.0f} Sci_RV={3:.5f}km/s RV_DRIFT={4}km/s".format(os.path.basename(file_list[i]), sci_ccf["header"]["DATE"],sci_ccf["header"]["SPEMSNR"], sci_ccf["header"]['RV_OBJ'], sci_ccf["header"]["RV_DRIFT"]))
