@@ -39,6 +39,7 @@ def get_object_rv(ccf_files,
                   velocity_window = 10.,
                   dvmax_per_order = 3.0,
                   save_rdb_timeseries = True,
+                  correct_rv_drift = True,
                   save_bisector_timeseries = True,
                   save_csv_table_of_results = True,
                   save_ccf_cube = False,
@@ -177,15 +178,15 @@ def get_object_rv(ccf_files,
     if save_rdb_timeseries :
         if method == 'bisector' or method == 'all' :
             bisector_rv_output = '{0}_bis_rv.rdb'.format(batch_name)
-            save_rv_time_series_in_rdb_format(tbl, bisector_rv_output, rv_key='RV_BIS')
+            save_rv_time_series_in_rdb_format(tbl, bisector_rv_output, rv_key='RV_BIS', correct_rv_drift=correct_rv_drift)
 
         if method == 'gaussian' or method == 'all' :
             gaussian_rv_output = '{0}_gauss_rv.rdb'.format(batch_name)
-            save_rv_time_series_in_rdb_format(tbl, gaussian_rv_output, rv_key='RV_GAUSS')
+            save_rv_time_series_in_rdb_format(tbl, gaussian_rv_output, rv_key='RV_GAUSS', correct_rv_drift=correct_rv_drift)
 
         if method == 'template' or method == 'all' :
             template_rv_output = '{0}_template_rv.rdb'.format(batch_name)
-            save_rv_time_series_in_rdb_format(tbl, template_rv_output, rv_key='RV')
+            save_rv_time_series_in_rdb_format(tbl, template_rv_output, rv_key='RV', correct_rv_drift=correct_rv_drift)
 
     if save_bisector_timeseries :
         bisector_output = '{0}_bisector.rdb'.format(batch_name)
@@ -1059,9 +1060,14 @@ def save_bisector_time_series_in_rdb_format(tbl, output, time_in_rjd=True, rv_in
     outfile.close()
 
 
-def save_rv_time_series_in_rdb_format(tbl, output, time_in_rjd=True, rv_in_mps=False, rv_key='RV', rverr_key='ERROR_RV') :
+def save_rv_time_series_in_rdb_format(tbl, output, time_in_rjd=True, rv_in_mps=False, rv_key='RV', rverr_key='ERROR_RV', correct_rv_drift=True) :
     
-    rv, rverr = tbl[rv_key], tbl[rverr_key]
+    if correct_rv_drift and 'RV_DRIFT' in tbl.keys():
+        rv = tbl[rv_key] - tbl['RV_DRIFT']
+    else :
+        rv = tbl[rv_key]
+
+    rverr = tbl[rverr_key]
     bjd = tbl['BJD'] + (tbl['MJDEND'] - tbl['MJDATE']) / 2.
     
     save_rv_time_series(output, bjd, rv, rverr, time_in_rjd=time_in_rjd, rv_in_mps=rv_in_mps)

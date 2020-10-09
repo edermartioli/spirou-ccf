@@ -907,7 +907,7 @@ def plotloop(looplist):
                 break
 
 
-def write_file(props, infile, maskname, header, wheader, verbose=False):
+def write_file(props, infile, maskname, header, wheader, rv_drifts, verbose=False):
 
     warnings.simplefilter('ignore', category=VerifyWarning)
 
@@ -984,13 +984,17 @@ def write_file(props, infile, maskname, header, wheader, verbose=False):
                           'RV wave file time [mjd]')
     header['RV_WAVTD'] = (header['MJDMID'] - wheader['MJDMID'],
                           'RV timediff [days] btwn file and wave solution')
-    header['RV_WAVFP'] = ('None', 'RV measured from wave sol FP CCF [km/s]')
-    header['RV_SIMFP'] = ('None', 'RV measured from simultaneous FP CCF [km/s]')
-    header['RV_DRIFT'] = ('None',
+    header['WFPDRIFT'] = (rv_drifts['WFPDRIFT'], 'Wavelength sol absolute CCF FP Drift [km/s]')
+    header['RV_WAVFP'] = (rv_drifts['RV_WAVFP'], 'RV measured from wave sol FP CCF [km/s]')
+    header['RV_SIMFP'] = (rv_drifts['RV_SIMFP'], 'RV measured from simultaneous FP CCF [km/s]')
+    header['RV_DRIFT'] = (rv_drifts['RV_DRIFT'],
                           'RV drift between wave sol and sim. FP CCF [km/s]')
     header['RV_OBJ'] = (props['MEAN_RV'],
                         'RV calc in the object CCF (non corr.) [km/s]')
-    header['RV_CORR'] = ('None', 'RV corrected for FP CCF drift [km/s]')
+    if type(rv_drifts['RV_DRIFT']) == float :
+        header['RV_CORR'] = (props['MEAN_RV']-rv_drifts['RV_DRIFT'], 'RV corrected for FP CCF drift [km/s]')
+    else :
+        header['RV_CORR'] = ('None', 'RV corrected for FP CCF drift [km/s]')
     # ----------------------------------------------------------------------
 
     # work around to make old data compatible:
@@ -1025,7 +1029,7 @@ def write_file(props, infile, maskname, header, wheader, verbose=False):
 # =============================================================================
 # main routine
 # =============================================================================
-def run_ccf_new(ccf_params, spectrum, valid_orders=None, output=True, science_channel=True, plot=False, interactive_plot=False, verbose=False, merge_headers=False) :
+def run_ccf_new(ccf_params, spectrum, rv_drifts, valid_orders=None, output=True, science_channel=True, plot=False, interactive_plot=False, verbose=False, merge_headers=False) :
 
     warnings.simplefilter(action='ignore', category=FutureWarning)
     warnings.simplefilter(action='ignore', category=RuntimeWarning)
@@ -1163,7 +1167,7 @@ def run_ccf_new(ccf_params, spectrum, valid_orders=None, output=True, science_ch
     # --------------------------------------------------------------------------
     # write the two tables to file CCFTABLE_{filename}_{mask}.fits
     if output :
-        loc = write_file(props, spectrum['filename'], ccf_params['MASK_FILE'], header, wheader, verbose=verbose)
+        loc = write_file(props, spectrum['filename'], ccf_params['MASK_FILE'], header, wheader, rv_drifts, verbose=verbose)
         return loc
 
 
