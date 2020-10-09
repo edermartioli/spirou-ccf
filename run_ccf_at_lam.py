@@ -10,7 +10,7 @@
     
     Simple usage example:
     
-    python run_ccf_at_lam.py --workdir="/home/external/emartioli/Data/"
+    python run_ccf_at_lam.py --workdir="/home/external/emartioli/Data/" --targets="HD189733"
     
     nohup python run_ccf_at_lam.py --workdir="/home/external/emartioli/Data/" > log_of_reduction.out 2>&1 &
     """
@@ -56,7 +56,9 @@ if options.targets != "":
 else :
     #targetlist = ["TOI-1278","TOI-1759","TOI-1452","TOI-233","K2-147","TOI-736","K2-33","TOI-442","TOI-876","TOI-732","GL699"]
     #targetlist =["AUMIC","HD189733","WASP-80","GJ1214","K2-25","GJ3470","GL436","WASP-69","WASP-127"]
-    targetlist = ["TOI-1278","TOI-1452"]
+    #targetlist = ["TOI-1278","TOI-1452"]
+    targetlist = ["TOI-1759","TOI-1452","TOI-233","K2-147","TOI-736","K2-33","TOI-442","TOI-876","TOI-732","GL699","WASP-80","GJ1214","K2-25","GJ3470","GL436","WASP-69","WASP-127"]
+#
 
 for object in targetlist :
     
