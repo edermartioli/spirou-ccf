@@ -248,7 +248,7 @@ def run_sci_ccf(tfile, sci_mask, fpfits="", plot=False, verbose=False) :
 
 def get_rv_drifts(tfits, fpfits="") :
     loc = {}
-    
+    print("fpfits=",fpfits)
     efits = tfits.replace("t.fits","e.fits")
     
     if fpfits != "" and os.path.exists(fpfits) :
