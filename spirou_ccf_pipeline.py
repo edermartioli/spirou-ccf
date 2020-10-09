@@ -10,7 +10,7 @@
     
     Simple usage example:
     
-    python $PATH/spirou_ccf_pipeline.py --input=*t.fits
+    python ~/spirou-ccf/spirou_ccf_pipeline.py --input=*t.fits
     
     """
 
@@ -247,8 +247,14 @@ def run_sci_ccf(tfile, sci_mask, plot=False, verbose=False) :
 
 def get_rv_drifts(tfits) :
     loc = {}
-    fpfits = tfits.replace("t.fits","_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
-    efits = tfits.replace("t.fits","e.fits")
+    
+    abspath = os.path.abspath(tfile)
+    tfilebasename = os.path.basename(tfile)
+    
+    fpfits = abspath +'/'+tfilebasename.replace("t.fits","_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
+    efits = abspath +'/'+tfilebasename.replace("t.fits","e.fits")
+    
+    print(fpfits, efits)
     
     if os.path.exists(fpfits) :
         print("Getting RV_DRIFT from file:{}".format(fpfits))
