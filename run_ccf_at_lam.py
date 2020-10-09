@@ -80,7 +80,7 @@ for object in targetlist :
         if run_for_real :
             subprocess.check_output(command, stderr=subprocess.STDOUT,shell=True)
 
-        command = "python {0}/spirou_ccf_pipeline.py --input={1}/*e.fits -vs".format(spirou_ccf_dir, outdir, object)
+        command = "python {0}/spirou_ccf_pipeline.py --input={1}/*t.fits -vs".format(spirou_ccf_dir, outdir, object)
         print("Running: ",command)
         if run_for_real :
             subprocess.check_output(command, stderr=subprocess.STDOUT,shell=True)
