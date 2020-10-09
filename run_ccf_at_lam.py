@@ -80,6 +80,11 @@ for object in targetlist :
         if run_for_real :
             subprocess.check_output(command, stderr=subprocess.STDOUT,shell=True)
 
+        command = "ln -s {0}/{1}/reduced/*/*_pp_e2dsff_C_ccf_smart_fp_mask_C.fits {2}/".format(LAMDATADIR, object, outdir)
+        print("Running: ",command)
+        if run_for_real :
+            subprocess.check_output(command, stderr=subprocess.STDOUT,shell=True)
+
         command = "python {0}/spirou_ccf_pipeline.py --input={1}/*t.fits -vs".format(spirou_ccf_dir, outdir, object)
         print("Running: ",command)
         if run_for_real :
