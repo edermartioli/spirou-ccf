@@ -256,7 +256,11 @@ def get_rv_drifts(tfits, fpfits="") :
         
         hdr = fits.getheader(fpfits)
         
-        loc["WFPDRIFT"] = hdr["WFPDRIFT"]
+        if "WFPDRIFT" in hdr.keys() :
+            loc["WFPDRIFT"] = hdr["WFPDRIFT"]
+        else :
+            loc["WFPDRIFT"] = 'None'
+
         loc["RV_WAVFP"] = hdr["RV_WAVFP"]
         loc["RV_SIMFP"] = hdr["RV_SIMFP"]
         loc["RV_DRIFT"] = hdr["RV_DRIFT"]
@@ -337,8 +341,7 @@ for object in collections['object'] :
     if options.verbose :
         print("Running CCF on reference exposure:{}".format(os.path.basename(file_list[refexp])))
 
-    fpfits = file_list[refexp].replace("t.fits","_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
-
+    fpfits = file_list[refexp].replace("t.fits","o_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
     # Run ccf on the reference spectrum, i.e., the one with maximum SNR:
     ref_sci_ccf = run_sci_ccf(file_list[refexp], mask_file, fpfits=fpfits, plot=options.plot)
 
