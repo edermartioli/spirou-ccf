@@ -57,7 +57,8 @@ else :
     #targetlist = ["TOI-1278","TOI-1759","TOI-1452","TOI-233","K2-147","TOI-736","K2-33","TOI-442","TOI-876","TOI-732","GL699"]
     #targetlist =["AUMIC","HD189733","WASP-80","GJ1214","K2-25","GJ3470","GL436","WASP-69","WASP-127"]
     #targetlist = ["TOI-1278","TOI-1452"]
-    targetlist = ["TOI-1759","TOI-1452","TOI-233","K2-147","TOI-736","K2-33","TOI-442","TOI-876","TOI-732","GL699","WASP-80","GJ1214","K2-25","GJ3470","GL436","WASP-69","WASP-127"]
+    #targetlist = ["TOI-1759","TOI-1452","TOI-233","K2-147","TOI-736","K2-33","TOI-442","TOI-876","TOI-732","GL699","WASP-80","GJ1214","K2-25","GJ3470","GL436","WASP-69","WASP-127"]
+    targetlist=["TOI-1452","WASP-80","GJ3470","K2-33","TOI-732","GJ1214","TOI-442"]
 #
 
 for object in targetlist :
