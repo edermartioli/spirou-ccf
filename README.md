@@ -9,7 +9,7 @@ python ~/spirou-ccf/spirou_ccf_pipeline.py --input=*t.fits -v
 
 The following input options are available:
 ```
---pattern for input data pattern. 
+--input for input data pattern. 
   (e.g., --pattern=*t.fits)
 -s for saving template spectrum to `OBJECT_template.fits`
 -p for plotting
