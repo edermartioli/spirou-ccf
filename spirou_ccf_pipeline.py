@@ -225,10 +225,10 @@ def run_cal_ccf(efile, fp_mask, plot=False, verbose=False) :
     return calib_ccf
 
 
-def run_sci_ccf(tfile, sci_mask, fpfits="", plot=False, verbose=False) :
+def run_sci_ccf(tfile, sci_mask, plot=False, verbose=False) :
 
     # try to get rv drifts
-    rv_drifts = get_rv_drifts(tfile, fpfits=fpfits)
+    rv_drifts = get_rv_drifts(tfile, verbose)
 
     ####################################
     # First run CCF on the science fiber:
@@ -246,13 +246,14 @@ def run_sci_ccf(tfile, sci_mask, fpfits="", plot=False, verbose=False) :
     return sci_ccf
 
 
-def get_rv_drifts(tfits, fpfits="") :
+def get_rv_drifts(tfits, verbose=False) :
     loc = {}
-    print("fpfits=",fpfits)
-    efits = tfits.replace("t.fits","e.fits")
+    
+    fpfits = tfits.replace("t.fits","o_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
     
     if fpfits != "" and os.path.exists(fpfits) :
-        print("Getting RV_DRIFT from file:{}".format(fpfits))
+        if verbose :
+            print("Getting RV_DRIFT from file:{}".format(fpfits))
         
         hdr = fits.getheader(fpfits,1)
         
@@ -262,7 +263,8 @@ def get_rv_drifts(tfits, fpfits="") :
         loc["RV_DRIFT"] = hdr["RV_DRIFT"]
     
     else :
-
+        efits = tfits.replace("t.fits","e.fits")
+        
         if os.path.exists(efits) :
             print("Measuring RV_DRIFT in spectrum: {}".format(efits))
             calib_ccf = run_cal_ccf(efits, fp_mask, plot=False, verbose=False)
@@ -337,9 +339,8 @@ for object in collections['object'] :
     if options.verbose :
         print("Running CCF on reference exposure:{}".format(os.path.basename(file_list[refexp])))
 
-    fpfits = file_list[refexp].replace("t.fits","o_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
     # Run ccf on the reference spectrum, i.e., the one with maximum SNR:
-    ref_sci_ccf = run_sci_ccf(file_list[refexp], mask_file, fpfits=fpfits, plot=options.plot)
+    ref_sci_ccf = run_sci_ccf(file_list[refexp], mask_file, plot=options.plot)
 
     # Set systemic velocity to the RV measured on the reference exposure
     rv_sys = ref_sci_ccf["header"]['RV_OBJ']
@@ -357,26 +358,31 @@ for object in collections['object'] :
     snr = []
 
     for i in range(len(file_list)) :
-        if options.verbose :
-            print("Running CCF on file {0}/{1}:{2}".format(i,len(file_list)-1,os.path.basename(file_list[i])))
+        try :
+            if options.verbose :
+                print("Running CCF on file {0}/{1}:{2}".format(i,len(file_list)-1,os.path.basename(file_list[i])))
 
-        fpfits = file_list[i].replace("t.fits","o_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
-        sci_ccf = run_sci_ccf(file_list[i], mask_file, fpfits=fpfits)
+            sci_ccf = run_sci_ccf(file_list[i], mask_file)
 
-        if options.verbose:
-            print("Spectrum: {0} DATE={1} SNR={2:.0f} Sci_RV={3:.5f}km/s RV_DRIFT={4}km/s".format(os.path.basename(file_list[i]), sci_ccf["header"]["DATE"],sci_ccf["header"]["SPEMSNR"], sci_ccf["header"]['RV_OBJ'], sci_ccf["header"]["RV_DRIFT"]))
+            if options.verbose:
+                print("Spectrum: {0} DATE={1} SNR={2:.0f} Sci_RV={3:.5f}km/s RV_DRIFT={4}km/s".format(os.path.basename(file_list[i]), sci_ccf["header"]["DATE"],sci_ccf["header"]["SPEMSNR"], sci_ccf["header"]['RV_OBJ'], sci_ccf["header"]["RV_DRIFT"]))
 
-        sci_ccf_file_list.append(os.path.abspath(sci_ccf["file_path"]))
         
-        bjd.append(sci_ccf["header"]['BJD'] + (sci_ccf["header"]['MJDEND'] - sci_ccf["header"]['MJDATE'])/2.)
+            bjd.append(sci_ccf["header"]['BJD'] + (sci_ccf["header"]['MJDEND'] - sci_ccf["header"]['MJDATE'])/2.)
 
-        if correct_rv_drift :
-            rv.append(sci_ccf["header"]['RV_OBJ'] - sci_ccf["header"]["RV_DRIFT"])
-        else :
-            rv.append(sci_ccf["header"]['RV_OBJ'])
+            if correct_rv_drift :
+                rv.append(sci_ccf["header"]['RV_OBJ'] - sci_ccf["header"]["RV_DRIFT"])
+            else :
+                rv.append(sci_ccf["header"]['RV_OBJ'])
 
-        rverr.append(sci_ccf["header"]['CCFMRVNS'])
-        snr.append(sci_ccf["header"]["SPEMSNR"])
+            rverr.append(sci_ccf["header"]['CCFMRVNS'])
+            snr.append(sci_ccf["header"]["SPEMSNR"])
+            
+            sci_ccf_file_list.append(os.path.abspath(sci_ccf["file_path"]))
+
+        except Exception as e:
+            print("WARNING: could not run CCF on file {}, skipping ... ".format(file_list[i]))
+            print(e)
 
     bjd = np.array(bjd)
     rv, rverr = np.array(rv), np.array(rverr)
@@ -389,10 +395,10 @@ for object in collections['object'] :
     spiroulib.save_rv_time_series(rv_file, bjd, rv, rverr)
 
     if options.verbose :
-        print("Building template spectrum out of {0} spectra ...".format(len(file_list)))
+        print("Building template spectrum out of {0} spectra ...".format(len(sci_ccf_file_list)))
     try :
         # Build template spectrum for object:
-        template_spectrum = spiroulib.template_using_fit(file_list, rv_file, median=True, normalize_by_continuum=True, verbose=False, plot=options.plot)
+        template_spectrum = spiroulib.template_using_fit(sci_ccf_file_list, rv_file, median=True, normalize_by_continuum=True, verbose=False, plot=options.plot)
 
         if options.save_template :
             # Set path and filename for output template
