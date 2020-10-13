@@ -1,7 +1,7 @@
 # spirou-ccf
 Wrapper to perform CCF measurements and CCF analysis to obtain radial velocities from SPIRou data. 
 
-To start using this tool one needs a given set of SPIRou spectra in `*t.fits` format saved in the same directory.  Then run the following example:
+To start using this tool one needs a set of SPIRou spectra in `*t.fits` format saved in the same directory.  Then run the following example:
 
 ```
 python ~/spirou-ccf/spirou_ccf_pipeline.py --input=*t.fits -v
