@@ -123,11 +123,7 @@ def generate_collection(inputdata, verbose=False) :
             objtemp[objectmode[0]] = np.nan
 
         snr_per_object = snr[object_mask]
-        snr_nanmask = ~np.isnan(snr_per_object)
-        if len(snr_per_object[snr_nanmask]) :
-            arg_max_snr[objectmode[0]] = np.nanargmax(snr_per_object)
-        else :
-            arg_max_snr[objectmode[0]] = 0
+        arg_max_snr[objectmode[0]] = np.argsort(snr_per_object)
         
         if verbose:
             print("Collection name:{0} OBJTEMP={1} NFILES={2}".format(objectmode[0],objtemp[objectmode[0]], len(collection[objectmode[0]])))
@@ -321,32 +317,40 @@ for object in collections['object'] :
     
     file_list = collections[object]
     obj_temp = objtemps[object]
-    # set reference exposure as the one with maximum SNR
-    refexp = arg_max_snr[object]
     
     # Select mask that best matches object temperature
     mask_file = select_best_ccf_mask(obj_temp, mask_repository)
-
-    # Set path for output files
-    abs_path_of_ref_spectrum = os.path.abspath(file_list[refexp])
-    outdir = os.path.dirname(abs_path_of_ref_spectrum)
     
     if options.verbose :
         print("*************************************************")
         print("OBJECT: {0} TEFF: {1}K  REF_CCF_MASK: {2}".format(object, obj_temp,os.path.basename(mask_file)))
         print("*************************************************")
 
-    if options.verbose :
-        print("Running CCF on reference exposure:{}".format(os.path.basename(file_list[refexp])))
+    file_list_sorted_by_snr = file_list[arg_max_snr[object]]
+    # loop over the list of input files sorted by SNR, and pick the first possible ref file
+    for i in range(len(file_list_sorted_by_snr)) :
+        try :
+            if options.verbose :
+                print("Trying to run CCF on reference exposure:{}".format(os.path.basename(file_list_sorted_by_snr[i])))
+            # set reference exposure as the one with maximum SNR
+            refexp = file_list_sorted_by_snr[i]
+            # Run ccf on the reference spectrum, i.e., the one with maximum SNR:
+            ref_sci_ccf = run_sci_ccf(refexp, mask_file, plot=options.plot)
+            # get out of the loop when succeed to calculate CCF
+            break
+        except :
+            print("WARNING: could not select file {} as reference, skipping ...".format(refexp))
+            continue
 
-    # Run ccf on the reference spectrum, i.e., the one with maximum SNR:
-    ref_sci_ccf = run_sci_ccf(file_list[refexp], mask_file, plot=options.plot)
+    # Set path for output files
+    abs_path_of_ref_spectrum = os.path.abspath(refexp)
+    outdir = os.path.dirname(abs_path_of_ref_spectrum)
 
     # Set systemic velocity to the RV measured on the reference exposure
     rv_sys = ref_sci_ccf["header"]['RV_OBJ']
 
     if options.verbose :
-        print("Reference spectrum {0} observed on {1} showing RV_sys={2:.5f} km/s".format(file_list[refexp], ref_sci_ccf["header"]["DATE"], rv_sys))
+        print("Reference spectrum {0} observed on {1} showing RV_sys={2:.5f} km/s".format(refexp, ref_sci_ccf["header"]["DATE"], rv_sys))
 
     # Select best mask based on measured RV sys
     mask_file = select_best_ccf_mask(obj_temp, mask_repository, rv_sys=rv_sys)
@@ -405,14 +409,14 @@ for object in collections['object'] :
             template_output = outdir + "/{}_template.fits".format(object)
             if options.verbose :
                 print("Saving template spectrum in the file: {0} ".format(template_output))
-            spiroulib.write_spectrum_to_fits(template_spectrum, template_output, header=fits.getheader(file_list[refexp]), wavekey='wl_template', fluxkey='flux_template', fluxerrkey='fluxerr_template')
+            spiroulib.write_spectrum_to_fits(template_spectrum, template_output, header=fits.getheader(refexp), wavekey='wl_template', fluxkey='flux_template', fluxerrkey='fluxerr_template')
     except Exception as e:
         print("WARNING: could not create template, skipping ... ")
         print(e)
 
     # Run CCF analysis to get object rvs using an optimized algorithm
     mask_basename = os.path.basename(mask_file)
-    sanit, drs_version = False, fits.getheader(file_list[refexp])['VERSION']
+    sanit, drs_version = False, fits.getheader(refexp)['VERSION']
     collection_key = "{}__{}__{}__{}".format(object, mask_basename, sanit, drs_version)
 
     if options.verbose :
