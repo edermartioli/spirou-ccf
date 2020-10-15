@@ -291,6 +291,7 @@ def get_rv_drifts(tfits, verbose=False) :
 parser = OptionParser()
 parser.add_option("-i", "--input", dest="input", help="Spectral *t.fits data pattern",type='string',default="*t.fits")
 parser.add_option("-s", action="store_true", dest="save_template", help="save template spectrum to  OBJECT_template.fits", default=False)
+parser.add_option("-d", action="store_true", dest="correct_drift", help="correct RV drift", default=False)
 parser.add_option("-p", action="store_true", dest="plot", help="plot", default=False)
 parser.add_option("-v", action="store_true", dest="verbose", help="verbose", default=False)
 
@@ -303,7 +304,7 @@ except:
 if options.verbose:
     print('Spectral t.fits data pattern: ', options.input)
 
-correct_rv_drift = True
+correct_rv_drift = options.correct_drift
 
 # make list of tfits data files
 if options.verbose:
