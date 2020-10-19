@@ -58,7 +58,7 @@ else :
     #targetlist =["AUMIC","HD189733","WASP-80","GJ1214","K2-25","GJ3470","GL436","WASP-69","WASP-127"]
     #targetlist = ["TOI-1759","TOI-1452","TOI-233","K2-147","TOI-736","K2-33","TOI-442","TOI-876","TOI-732","GL699","WASP-80","GJ1214","K2-25","GJ3470","GL436","WASP-69","WASP-127"]
     #targetlist=["GJ3470","K2-33","TOI-732","GJ1214","TOI-442"]
-    targetlist = ["TOI-1452", "TOI-1759"]
+    targetlist = ["TOI-1452", "TOI-1759", "AUMIC", "HD189733", "WASP-80", "GJ1214", "GL436","WASP-69","WASP-127","K2-25"]
 
 
 for object in targetlist :
@@ -88,7 +88,7 @@ for object in targetlist :
         if run_for_real :
             subprocess.check_output(command, stderr=subprocess.STDOUT,shell=True)
 
-        command = "python {0}/spirou_ccf_pipeline.py --input={1}/*t.fits -vs".format(spirou_ccf_dir, outdir, object)
+        command = "python {0}/spirou_ccf_pipeline.py --input={1}/*t.fits -vo".format(spirou_ccf_dir, outdir, object)
         print("Running: ",command)
         if run_for_real :
             subprocess.check_output(command, stderr=subprocess.STDOUT,shell=True)
