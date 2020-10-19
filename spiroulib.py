@@ -29,6 +29,7 @@ from scipy.optimize import curve_fit
 from copy import copy, deepcopy
 from astropy.io import ascii
 from scipy.interpolate import UnivariateSpline
+from scipy import stats
 import time
 import scipy.signal as signal
 import scipy.interpolate as sint
@@ -148,7 +149,7 @@ def get_normalization_factor(flux_order, i_max, norm_window=50) :
 
 #### Function to get chunk data #########
 def get_chunk_data(spectrum, wl0, wlf, order, rv_overscan = 100.0, source_rv=0.0, apply_BERV=True, cal_fiber=False, normalize=1, nan_pos_filter=True, plot=False) :
-
+    
     loc = {}
     loc['order'] = order
 
@@ -240,7 +241,7 @@ def get_chunk_data(spectrum, wl0, wlf, order, rv_overscan = 100.0, source_rv=0.0
         flux = flux / normalization_factor
         fluxerr = fluxerr / normalization_factor
 
-    if normalize == 1:
+    elif normalize == 1:
         # Calculate normalization factor
         normalization_factor = get_normalization_factor(flux, np.nanargmax(spectrum['FluxAB'][order]))
         loc['normalization_factor'] = normalization_factor
@@ -254,23 +255,29 @@ def get_chunk_data(spectrum, wl0, wlf, order, rv_overscan = 100.0, source_rv=0.0
         fluxerr = fluxerr / normalization_factor
 
     elif normalize == 2 :
-        
         # get masked data
         flux_tmp = deepcopy(flux)
         wl_tmp = deepcopy(wave)
+        loc['cont'] = np.array([])
         
-        # measure continuum
-        cont, xbin, ybin = continuum(wl_tmp, flux_tmp, binsize=100,overlap=25, window=2,mode="max", use_linear_fit=True)
-        loc['cont'] = cont[wlmask]
-        if plot :
-            plt.plot(wave,flux,'.')
-            plt.plot(xbin,ybin, 'o')
-            plt.plot(wave,cont, '-')
-            plt.show()
+        if len(wl_tmp[wlmask]) :
+            '''
+            # measure continuum
+            cont, xbin, ybin = continuum(wl_tmp, flux_tmp, binsize=100,overlap=25, window=2,mode="max", use_linear_fit=True)
+            if plot :
+                plt.plot(wave,flux,'.')
+                plt.plot(xbin,ybin, 'o')
+                plt.plot(wave,cont, '-')
+                plt.show()
+            '''
+            cont = fit_continuum(wl_tmp, flux_tmp, function='polynomial', order=4, nit=5, rej_low=2.0, rej_high=2.5, grow=1, med_filt=0, percentile_low=0., percentile_high=100., min_points=10, xlabel="wavelength (nm)", ylabel="flux", plot_fit=plot, verbose=False)
+            
+            loc['cont'] = cont[wlmask]
             # normalize flux
-        flux = flux / cont
-        fluxerr = fluxerr / cont
+            flux = flux / cont
+            fluxerr = fluxerr / cont
 
+    
     # mask data
     flux, fluxerr, wave = flux[wlmask], fluxerr[wlmask], wave[wlmask]
     if 'Recon' in spectrum.keys():
@@ -330,7 +337,7 @@ def load_spirou_AB_efits_spectrum(input, nan_pos_filter=True, preprocess=False, 
             BlazeAB = hdu["BlazeAB"].data
         Recon = hdu["Recon"].data
     else :
-        print("ERROR: input file type not recognized")
+        print("ERROR: unsupported extension for input file {}".format(input))
         exit()
 
     WaveABout, FluxABout, BlazeABout = [], [], []
@@ -368,7 +375,7 @@ def load_spirou_AB_efits_spectrum(input, nan_pos_filter=True, preprocess=False, 
     loc['header0'] = hdu[0].header
     loc['header1'] = hdu[1].header
 
-    loc['WaveAB'] = np.array(WaveABout,dtype=float)
+    loc['WaveAB'] = WaveABout
     loc['FluxAB'] = FluxABout
     loc['BlazeAB'] = BlazeABout
     
@@ -396,19 +403,26 @@ def pre_process(spectrum, apply_BERV=True, source_rv=0., normalize=1, nan_pos_fi
         norm_chunk = get_chunk_data(spectrum, 1054., 1058., 6, rv_overscan = 0., source_rv=0.0, apply_BERV=False, cal_fiber=False, normalize=-1, nan_pos_filter=True, plot=False)
         spectrum["normalization_factor"] = np.median(norm_chunk['flux'])
 
-    
     out_continuum = []
     
     for order in range(len(orders['orders'])) :
         wl0, wlf = orders['wl0'][order], orders['wlf'][order]
-        loc = get_chunk_data(spectrum, wl0, wlf, order, rv_overscan = 0., source_rv=source_rv, cal_fiber=False, apply_BERV=apply_BERV, normalize=normalize, nan_pos_filter=nan_pos_filter, plot=False)
-        out_wl.append(loc['wl'])
-        out_flux.append(loc['flux'])
-        out_fluxerr.append(loc['fluxerr'])
-        if normalize == 1 :
-            out_continuum.append(loc['normalization_factor'])
-        elif normalize == 2 :
-            out_continuum.append(loc['cont'])
+        
+        try :
+            loc = get_chunk_data(spectrum, wl0, wlf, order, rv_overscan=0., source_rv=source_rv, cal_fiber=False, apply_BERV=apply_BERV, normalize=normalize, nan_pos_filter=nan_pos_filter, plot=False)
+            out_wl.append(loc['wl'])
+            out_flux.append(loc['flux'])
+            out_fluxerr.append(loc['fluxerr'])
+            if normalize == 1 :
+                out_continuum.append(loc['normalization_factor'])
+            elif normalize == 2 :
+                out_continuum.append(loc['cont'])
+        except:
+            out_wl.append(np.array([]))
+            out_flux.append(np.array([]))
+            out_fluxerr.append(np.array([]))
+            if normalize == 1 or normalize == 2 :
+                out_continuum.append(np.array([]))
 
     spectrum['wl'] = out_wl
     spectrum['flux'] = out_flux
@@ -522,7 +536,7 @@ def build_template(flux, wl, sig_clip = 0.0, fit=False, verbose=False, median=Tr
 def template_using_fit(inputdata, rv_filename, median=False, normalize_by_continuum=False, verbose=False, plot=False, outputplot="") :
     
     warnings.simplefilter('ignore', np.RankWarning)
-
+    
     # initialize loc dictionary to store data
     loc = {}
     
@@ -544,14 +558,20 @@ def template_using_fit(inputdata, rv_filename, median=False, normalize_by_contin
         # load header extensions
         header0 = fits.getheader(inputdata[i],0)
         header1 = fits.getheader(inputdata[i],1)
-        bjd.append(header1["BJD"])
-        airmass.append(header0["AIRMASS"])
-        if "SPEMSNR" in header1.keys() :
-            snr.append(header0["SPEMSNR"])
-        elif "SNR33" in header1.keys() :
-            snr.append(header1["SNR33"])
+        bjd.append((header0+header1)["BJD"])
+        if "AIRMASS" in (header0+header1).keys() :
+            airmass.append((header0+header1)["AIRMASS"])
+        else :
+            airmass.append(1.)
 
-        berv.append(header1["BERV"])
+        if "SPEMSNR" in (header0+header1).keys() :
+            snr.append((header0+header1)["SPEMSNR"])
+        elif "SNR33" in (header0+header1).keys() :
+            snr.append((header0+header1)["SNR33"])
+        else :
+            snr.append(1.)
+
+        berv.append((header0+header1)["BERV"])
         # load SPIRou spectrum
         spectrum = load_spirou_AB_efits_spectrum(inputdata[i], nan_pos_filter=False, preprocess=True, apply_BERV_to_preprocess=False, source_rv=0., normalization_in_preprocess=0, normalize_blaze=True)
         spectra.append(spectrum)
@@ -673,8 +693,8 @@ def template_using_fit(inputdata, rv_filename, median=False, normalize_by_contin
             fluxerr_template.append(reduced_spectra_2['flux_sig'])
         else :
             wl_template.append(np.array([]))
-            flux_template.append(spectra_flux)
-            fluxerr_template.append(spectra_fluxerr)
+            flux_template.append(np.array([]))
+            fluxerr_template.append(np.array([]))
 
     if plot :
         plt.legend()
@@ -687,9 +707,9 @@ def template_using_fit(inputdata, rv_filename, median=False, normalize_by_contin
         #plt.clf()
         #plt.close()
 
-    loc['wl_template'] = wl_template
-    loc['flux_template'] = flux_template
-    loc['fluxerr_template'] = fluxerr_template
+    loc['wl'] = wl_template
+    loc['flux'] = flux_template
+    loc['fluxerr'] = fluxerr_template
 
     return loc
 
@@ -897,6 +917,31 @@ def write_spectrum_orders_to_fits(spectrum, filename, header=None, wavekey='wl',
         mef_hdu = fits.HDUList([primary_hdu, hdu_wl, hdu_flux])
 
     mef_hdu.writeto(filename, overwrite=True)
+
+
+def read_orders_spectrum_from_fits(filename) :
+    hdu = fits.open(filename)
+    
+    spectrum = {}
+    spectrum['header'] = hdu[0].header
+    
+    wave = hdu['WAVE'].data
+    flux = hdu['FLUX'].data
+    fluxerr = hdu['FLUXERR'].data
+
+    wl_out, flux_out, fluxerr_out = [], [], []
+
+    for order in range(len(wave)):
+        nanmask = np.where(np.logical_and(flux[order] > 0, ~np.isnan(flux[order])))
+        wl_out.append(wave[order][nanmask])
+        flux_out.append(flux[order][nanmask])
+        fluxerr_out.append(fluxerr[order][nanmask])
+
+    spectrum['wl'] = wl_out
+    spectrum['flux'] = flux_out
+    spectrum['fluxerr'] = fluxerr_out
+    
+    return spectrum
 
 
 def write_spectrum_to_fits(spectrum, filename, header=None, wavekey='wl', fluxkey='flux', fluxerrkey='fluxerr'):

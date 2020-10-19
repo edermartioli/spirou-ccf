@@ -907,10 +907,7 @@ def plotloop(looplist):
                 break
 
 
-def write_file(props, infile, maskname, header, wheader, rv_drifts, verbose=False):
-
-    warnings.simplefilter('ignore', category=VerifyWarning)
-
+def construct_out_ccf_filename(infile, maskname) :
     # ----------------------------------------------------------------------
     # construct out file name
     inbasename = os.path.basename(infile).split('.')[0]
@@ -919,6 +916,15 @@ def write_file(props, infile, maskname, header, wheader, rv_drifts, verbose=Fals
     outfile = 'CCFTABLE_{0}_{1}.fits'.format(inbasename, maskbasename)
     outpath = os.path.join(inpath, outfile)
     # ----------------------------------------------------------------------
+    return outpath
+
+
+def write_file(props, infile, maskname, header, wheader, rv_drifts, verbose=False):
+
+    warnings.simplefilter('ignore', category=VerifyWarning)
+
+    outpath = construct_out_ccf_filename(infile, maskname)
+    
     # produce CCF table
     table1 = Table()
     table1['RV'] = props['RV_CCF']
@@ -1016,14 +1022,12 @@ def write_file(props, infile, maskname, header, wheader, rv_drifts, verbose=Fals
     # write hdulist
     hdulist.writeto(outpath, overwrite=True)
 
-    loc = {}
+    props["file_path"] = outpath
+    props["header"] = header
+    props["RV_CCF"] = props['RV_CCF']
+    props["MEAN_CCF"] = props['MEAN_CCF']
 
-    loc["file_path"] = outpath
-    loc["header"] = header
-    loc["RV_CCF"] = props['RV_CCF']
-    loc["MEAN_CCF"] = props['MEAN_CCF']
-
-    return loc
+    return props
 
 
 # =============================================================================
@@ -1070,7 +1074,7 @@ def run_ccf_new(ccf_params, spectrum, rv_drifts, valid_orders=None, output=True,
         header = make_wave_keywords(header)
     #wave = fits2wave(header, npix=nbpix)
     wheader = header
-    wave = spectrum["WaveAB"]
+    wave = np.array(spectrum["WaveAB"])
 
     # --------------------------------------------------------------------------
     # get fiber typoe
@@ -1104,6 +1108,10 @@ def run_ccf_new(ccf_params, spectrum, rv_drifts, valid_orders=None, output=True,
         berv = 0.0
         # emission features
         fit_type = 1
+
+    #if berv == 'NaN     ':
+    #        berv = 0.
+
     # --------------------------------------------------------------------------
     # get rv from header (or set to zero)
     if ('OBJRV' in header) and dprtype == 'OBJ':
@@ -1167,8 +1175,9 @@ def run_ccf_new(ccf_params, spectrum, rv_drifts, valid_orders=None, output=True,
     # --------------------------------------------------------------------------
     # write the two tables to file CCFTABLE_{filename}_{mask}.fits
     if output :
-        loc = write_file(props, spectrum['filename'], ccf_params['MASK_FILE'], header, wheader, rv_drifts, verbose=verbose)
-        return loc
+        props = write_file(props, spectrum['filename'], ccf_params['MASK_FILE'], header, wheader, rv_drifts, verbose=verbose)
+
+    return props
 
 
 def make_wave_keywords(header) :

@@ -28,9 +28,13 @@ from collections import Counter
 import numpy as np
 
 import spiroulib
+import spectrumlib
 import ccf_lib
 import ccf2rv
 from copy import deepcopy
+
+import matplotlib.pyplot as plt
+
 
 spirou_ccf_dir = os.path.dirname(__file__) + '/'
 
@@ -263,21 +267,27 @@ def get_rv_drifts(tfits, verbose=False) :
         
         if os.path.exists(efits) :
             print("Measuring RV_DRIFT in spectrum: {}".format(efits))
-            calib_ccf = run_cal_ccf(efits, fp_mask, plot=False, verbose=False)
-            hdr = fits.getheader(tfits)
-            if "WFPDRIFT" in hdr.keys() :
-                loc["WFPDRIFT"] = hdr["WFPDRIFT"]
-            else :
-                loc["WFPDRIFT"] = 'None'
+            try :
+                calib_ccf = run_cal_ccf(efits, fp_mask, plot=False, verbose=False)
+                hdr = fits.getheader(tfits)
+                if "WFPDRIFT" in hdr.keys() :
+                    loc["WFPDRIFT"] = hdr["WFPDRIFT"]
+                else :
+                    loc["WFPDRIFT"] = 'None'
 
-            if "WFPDRIFT" in hdr.keys() :
-                loc["RV_WAVFP"] = hdr["RV_WAVFP"]
-            else :
+                if "WFPDRIFT" in hdr.keys() :
+                    loc["RV_WAVFP"] = hdr["RV_WAVFP"]
+                else :
+                    loc["RV_WAVFP"] = 'None'
+
+                loc["RV_SIMFP"] = calib_ccf["header"]['RV_OBJ']
+                loc["RV_DRIFT"] = calib_ccf["header"]['RV_OBJ']
+            except:
+                print("WARNING: could not calculate RV drift on file {0}, setting RV drift = 0.".format(efits))
+                loc["WFPDRIFT"] ='None'
                 loc["RV_WAVFP"] = 'None'
-
-            loc["RV_SIMFP"] = calib_ccf["header"]['RV_OBJ']
-            loc["RV_DRIFT"] = calib_ccf["header"]['RV_OBJ']
-            
+                loc["RV_SIMFP"] = 'None'
+                loc["RV_DRIFT"] = 0.
         else :
             print("WARNING: could not find {} nor {}, setting RV drift = 0.".format(fpfits, efits))
             loc["WFPDRIFT"] ='None'
@@ -288,10 +298,127 @@ def get_rv_drifts(tfits, verbose=False) :
     return loc
 
 
+def process_ccfs(file_list, mask_file, correct_rv_drift=False, rv_file="", overwrite=False, verbose=False) :
+    
+    bjd, rv, rverr = [], [], []
+    sci_ccf_file_list, valid_files = [], []
+    snr = []
+
+    for i in range(len(file_list)) :
+        try :
+            outpath = ccf_lib.construct_out_ccf_filename(file_list[i], mask_file)
+
+            if not os.path.exists(outpath) or overwrite :
+                if verbose :
+                    print("Running CCF on file {0}/{1}:{2}".format(i,len(file_list)-1,os.path.basename(file_list[i])))
+
+                sci_ccf = run_sci_ccf(file_list[i], mask_file)
+
+                if verbose:
+                    print("Spectrum: {0} DATE={1} SNR={2:.0f} Sci_RV={3:.5f} km/s RV_DRIFT={4:.5f} km/s".format(os.path.basename(file_list[i]), sci_ccf["header"]["DATE"],sci_ccf["header"]["SPEMSNR"], sci_ccf["header"]['RV_OBJ'], sci_ccf["header"]["RV_DRIFT"]))
+
+                bjd.append(sci_ccf["header"]['BJD'] + (sci_ccf["header"]['MJDEND'] - sci_ccf["header"]['MJDATE'])/2.)
+
+                if correct_rv_drift :
+                    rv.append(sci_ccf["header"]['RV_OBJ'] - sci_ccf["header"]["RV_DRIFT"])
+                else :
+                    rv.append(sci_ccf["header"]['RV_OBJ'])
+
+                rverr.append(sci_ccf["header"]['CCFMRVNS'])
+                snr.append(sci_ccf["header"]["SPEMSNR"])
+            
+                sci_ccf_file_list.append(os.path.abspath(sci_ccf["file_path"]))
+                valid_files.append(file_list[i])
+                    
+            elif os.path.exists(outpath) :
+                
+                hdr = fits.getheader(outpath, 1)
+                
+                if verbose:
+                    print("CCF from existing file: {0} DATE={1} SNR={2:.0f} Sci_RV={3:.5f} km/s RV_DRIFT={4:.5f} km/s".format(os.path.basename(outpath), hdr["DATE"],hdr["SPEMSNR"], hdr['RV_OBJ'], hdr["RV_DRIFT"]))
+
+                bjd.append(hdr['BJD'] + (hdr['MJDEND'] - hdr['MJDATE'])/2.)
+
+                if correct_rv_drift :
+                    rv.append(hdr['RV_OBJ'] - hdr["RV_DRIFT"])
+                else :
+                    rv.append(hdr['RV_OBJ'])
+
+                rverr.append(hdr['CCFMRVNS'])
+                snr.append(hdr["SPEMSNR"])
+                    
+                # consider only valid files those that exist
+                sci_ccf_file_list.append(outpath)
+                valid_files.append(file_list[i])
+                    
+        except Exception as e:
+            print("WARNING: could not run CCF on file {}, skipping ... ".format(file_list[i]))
+            print(e)
+
+    bjd = np.array(bjd)
+    rv, rverr = np.array(rv), np.array(rverr)
+    snr = np.array(snr)
+
+    if rv_file != "" :
+        if verbose :
+            print("Saving output RVs in the file: {0}".format(rv_file))
+        spiroulib.save_rv_time_series(rv_file, bjd, rv, rverr)
+
+    loc = {}
+    loc["sci_ccf_files"] = sci_ccf_file_list
+    loc["valid_files"] = valid_files
+    loc["bjd"] = bjd
+    loc["rv"] = rv
+    loc["rverr"] = rverr
+    return loc
+
+
+def calculate_optimum_ccf_mask(template_spectrum, ref_sci_ccf, obj_temp, vsini=2., mask_file="", output="", verbose=False, plot=False) :
+
+    #############
+    ref_fwhm = ref_sci_ccf['MEAN_FWHM']
+    # Need to create a tool to measure vsini or use empirical CCF to detect lines
+    ccf_width, ccf_step = 2.5 * ref_fwhm, ref_sci_ccf['CCF_STEP']
+    spirou_resolution = 70000
+    if verbose :
+        print("ref_fwhm=",ref_fwhm, "ccf_width=",ccf_width, "ccf_step=",ccf_step)
+
+    vald_database = spirou_ccf_dir + 'VALD.950_2400nm/atomic_lines.tsv'
+
+    if verbose :
+        print("Detecting lines in template ...")
+    empirical_lines = spectrumlib.detect_lines_in_template(template_spectrum, ccf_width, ccf_step, spirou_resolution, vsini, plot=plot)
+
+    if mask_file != "":
+        # load an input ccf  mask for comparison
+        linemask = {}
+        linemask = spectrumlib.get_ccf_mask(linemask, mask_file)
+    else :
+        linemask = None
+
+    if verbose :
+        print("Identifying detected lines with VALD database...")
+    catalog = spectrumlib.identify_detected_lines(empirical_lines, vald_database, ccf_step, obj_temp, linemask=linemask, plot=False, verbose=False)
+    
+    #rot_ccf = spectrumlib.get_rot_ccf(v_min=-ccf_width, v_max=ccf_width, v_step=ccf_step, resolution=spirou_resolution, wlc=1600., vsini=vsini, teff=obj_temp, plot=False)
+    #ref_fwhm = rot_ccf['fwhm']
+    #print("ref_fwhm=",ref_fwhm)
+
+    #mask_width=ref_sci_ccf["MASK_WIDTH"]
+    mask_width=1.0
+
+    if options.verbose :
+        print("Generating optimum CCF mask and saving to file: {}".format(optimum_mask))
+
+    ccf_mask = spectrumlib.generate_ccf_optimal_mask(catalog, mask_width=mask_width, sig_clip=2.5, outputmask=output, include_orders_in_mask=False, min_fwhm=0.25*ref_fwhm, max_fwhm=3*ref_fwhm, use_measured_wlc=True, plot=plot)
+
+    return ccf_mask
+
+
 parser = OptionParser()
 parser.add_option("-i", "--input", dest="input", help="Spectral *t.fits data pattern",type='string',default="*t.fits")
-parser.add_option("-s", action="store_true", dest="save_template", help="save template spectrum to  OBJECT_template.fits", default=False)
 parser.add_option("-d", action="store_true", dest="correct_drift", help="correct RV drift", default=False)
+parser.add_option("-o", action="store_true", dest="overwrite", help="overwrite output files", default=False)
 parser.add_option("-p", action="store_true", dest="plot", help="plot", default=False)
 parser.add_option("-v", action="store_true", dest="verbose", help="verbose", default=False)
 
@@ -328,6 +455,7 @@ for object in collections['object'] :
         print("*************************************************")
 
     file_list_sorted_by_snr = file_list[arg_max_snr[object]]
+
     # loop over the list of input files sorted by SNR, and pick the first possible ref file
     for i in range(len(file_list_sorted_by_snr)) :
         try :
@@ -358,65 +486,57 @@ for object in collections['object'] :
     if options.verbose :
         print("Selected optimal CCF MASK: {0}".format(mask_file))
 
-    bjd, rv, rverr = [], [], []
-    sci_ccf_file_list = []
-    snr = []
-
-    for i in range(len(file_list)) :
-        try :
-            if options.verbose :
-                print("Running CCF on file {0}/{1}:{2}".format(i,len(file_list)-1,os.path.basename(file_list[i])))
-
-            sci_ccf = run_sci_ccf(file_list[i], mask_file)
-
-            if options.verbose:
-                print("Spectrum: {0} DATE={1} SNR={2:.0f} Sci_RV={3:.5f}km/s RV_DRIFT={4}km/s".format(os.path.basename(file_list[i]), sci_ccf["header"]["DATE"],sci_ccf["header"]["SPEMSNR"], sci_ccf["header"]['RV_OBJ'], sci_ccf["header"]["RV_DRIFT"]))
-
-        
-            bjd.append(sci_ccf["header"]['BJD'] + (sci_ccf["header"]['MJDEND'] - sci_ccf["header"]['MJDATE'])/2.)
-
-            if correct_rv_drift :
-                rv.append(sci_ccf["header"]['RV_OBJ'] - sci_ccf["header"]["RV_DRIFT"])
-            else :
-                rv.append(sci_ccf["header"]['RV_OBJ'])
-
-            rverr.append(sci_ccf["header"]['CCFMRVNS'])
-            snr.append(sci_ccf["header"]["SPEMSNR"])
-            
-            sci_ccf_file_list.append(os.path.abspath(sci_ccf["file_path"]))
-
-        except Exception as e:
-            print("WARNING: could not run CCF on file {}, skipping ... ".format(file_list[i]))
-            print(e)
-
-    bjd = np.array(bjd)
-    rv, rverr = np.array(rv), np.array(rverr)
-    snr = np.array(snr)
-    
+    ##########################
+    # Run CCF 1st pass using repository mask:
     # Set path and filename for output template
-    rv_file = outdir + "/{0}_rv.rdb".format(object)
-    if options.verbose :
-        print("Saving output RVs in the files: {0}".format(rv_file))
-    spiroulib.save_rv_time_series(rv_file, bjd, rv, rverr)
+    rv_file = outdir + "/{0}_repomask_rv.rdb".format(object)
+    # process CCFs for all spectra using best mask from mask collection
+    pccfs_repo = process_ccfs(file_list, mask_file,correct_rv_drift=correct_rv_drift, rv_file=rv_file, overwrite=options.overwrite, verbose=options.verbose)
+    ##########################
 
-    if options.verbose :
-        print("Building template spectrum out of {0} spectra ...".format(len(sci_ccf_file_list)))
-    try :
-        # Build template spectrum for object:
-        template_spectrum = spiroulib.template_using_fit(sci_ccf_file_list, rv_file, median=True, normalize_by_continuum=True, verbose=False, plot=options.plot)
+    ##########################
+    # Create template spectrum
+    template_output = outdir + "/{}_template.fits".format(object)
 
-        if options.save_template :
+    if not os.path.exists(template_output) or options.overwrite :
+        if options.verbose :
+            print("Building template spectrum out of {0} spectra ...".format(len(pccfs_repo["valid_files"])))
+        try :
+            # Build template spectrum for object:
+            template_spectrum = spiroulib.template_using_fit(pccfs_repo["valid_files"], rv_file, median=True, normalize_by_continuum=True, verbose=False, plot=options.plot)
+            
             # Set path and filename for output template
-            template_output = outdir + "/{}_template.fits".format(object)
             if options.verbose :
                 print("Saving template spectrum in the file: {0} ".format(template_output))
-            spiroulib.write_spectrum_to_fits(template_spectrum, template_output, header=fits.getheader(refexp), wavekey='wl_template', fluxkey='flux_template', fluxerrkey='fluxerr_template')
-    except Exception as e:
-        print("WARNING: could not create template, skipping ... ")
-        print(e)
+            spiroulib.write_spectrum_orders_to_fits(template_spectrum, template_output, header=fits.getheader(refexp))
+        except :
+            if options.verbose :
+                print("WARNING: could not create template, adopting template as ref spectrum:  {0} ".format(refexp))
+            template_spectrum = spiroulib.load_spirou_AB_efits_spectrum(refexp, nan_pos_filter=False, preprocess=True, source_rv=rv_sys, normalization_in_preprocess=2, normalize_blaze=True)
+    else :
+        print("Template already exists, loading spectrum from file: {0}".format(template_output))
+        # Load template spectrum
+        template_spectrum = spiroulib.read_orders_spectrum_from_fits(template_output)
 
+    ##########################
+    # Run routines to calculate an optimum mask for object using template:
+    # Set filename for output optimum mask
+    optimum_mask = outdir + "/{0}.mas".format(object)
+    if not os.path.exists(optimum_mask) or options.overwrite :
+        ccf_mask = calculate_optimum_ccf_mask(template_spectrum, ref_sci_ccf, obj_temp, mask_file=mask_file, output=optimum_mask, verbose=options.verbose)
+    ##########################
+
+    ##########################
+    # Run CCF 2nd pass using optimum mask:
+    # Set path and filename for output template
+    rv_file = outdir + "/{0}_optimummask_rv.rdb".format(object)
+    # process CCFs for all spectra using best mask from mask collection
+    pccfs_optm = process_ccfs(pccfs_repo["valid_files"], optimum_mask, correct_rv_drift=correct_rv_drift, rv_file=rv_file, overwrite=options.overwrite, verbose=options.verbose)
+    #########
+
+    ##########################
     # Run CCF analysis to get object rvs using an optimized algorithm
-    mask_basename = os.path.basename(mask_file)
+    mask_basename = os.path.basename(optimum_mask)
     sanit, drs_version = False, fits.getheader(refexp)['VERSION']
     collection_key = "{}__{}__{}__{}".format(object, mask_basename, sanit, drs_version)
 
@@ -435,15 +555,5 @@ for object in collections['object'] :
     # set bandpass
     bandpass = "YJHK"
 
-    tbl = ccf2rv.get_object_rv(sci_ccf_file_list, collection_key=collection_key, method="all", exclude_orders=exclude_orders, snr_min=snr_min, bandpass=bandpass, save_rdb_timeseries=True, correct_rv_drift=correct_rv_drift, save_csv_table_of_results=True, save_ccf_cube=False, save_weight_table=False, doplot=options.plot, showplots=options.plot, saveplots=options.plot, verbose=options.verbose)
-
-    # To do:
-
-    # Check FP mask, FP RV calculations
-
-    # Use template to build optimal CCF mask for object
-    # Calculate CCFs using optimal mask on a second pass
-
-    # Run algorithm to compare all RV data and pick the one with minimum RV dispersion
-
-
+    tbl = ccf2rv.get_object_rv(pccfs_optm["sci_ccf_files"], collection_key=collection_key, method="all", exclude_orders=exclude_orders, snr_min=snr_min, bandpass=bandpass, save_rdb_timeseries=True, correct_rv_drift=correct_rv_drift, save_csv_table_of_results=True, save_ccf_cube=False, save_weight_table=False, doplot=options.plot, showplots=options.plot, saveplots=options.plot, verbose=options.verbose)
+    ##########################
