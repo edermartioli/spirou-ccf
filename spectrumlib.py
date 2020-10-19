@@ -29,7 +29,6 @@ from copy import copy, deepcopy
 
 import spiroulib
 
-from astroquery.atomic import AtomicLineList
 from astropy import units as u
 
 from astropy.convolution import Gaussian1DKernel, convolve
