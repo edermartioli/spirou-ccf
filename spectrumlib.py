@@ -1214,14 +1214,14 @@ def make_mask_of_empirical_lines(loc, mask_width=1.0, sig_clip=2.5, min_fwhm=0.,
         total_number_of_lines = 0
         
         for order in range(len(loc['wl'])) :
-            nlines_in_order = len(new_line_wlc)
+            nlines_in_order = len(new_line_wlc[order])
             print("Order {0} has {1} lines included in mask.".format(order, nlines_in_order))
             total_number_of_lines += nlines_in_order
             # Build mask in format needed for CCF an
-            dwl = new_line_wlc * mask_width / (constants.c/1000.)
-            mask_wl0 = new_line_wlc - dwl/2.
-            mask_wlf = new_line_wlc + dwl/2.
-            mask_weight = new_line_depth
+            dwl = new_line_wlc[order] * mask_width / (constants.c/1000.)
+            mask_wl0 = new_line_wlc[order] - dwl/2.
+            mask_wlf = new_line_wlc[order] + dwl/2.
+            mask_weight = new_line_depth[order]
         
             for i in range(len(mask_weight)) :
                 if mask_weight[i] not in outmask_weight :
@@ -1236,7 +1236,7 @@ def make_mask_of_empirical_lines(loc, mask_width=1.0, sig_clip=2.5, min_fwhm=0.,
             save_ccf_mask(output, outmask_wl0, outmask_wlf, outmask_weight, orders=outmask_order)
         else :
             sortmask = np.argsort(outmask_wl0)
-            save_ccf_mask(output, outmask_wl0, outmask_wlf, outmask_weight,orders=[])
+            save_ccf_mask(output, outmask_wl0, outmask_wlf, outmask_weight, orders=[])
     
     return catalog
 
