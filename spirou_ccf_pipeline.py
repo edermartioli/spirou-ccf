@@ -10,7 +10,7 @@
     
     Simple usage example:
     
-    python ~/spirou-ccf/spirou_ccf_pipeline.py --input=*t.fits
+    python ~/spirou-ccf/spirou_ccf_pipeline.py --input=*t.fits -vo
     
     """
 
@@ -389,6 +389,8 @@ def calculate_optimum_ccf_mask(template_spectrum, ref_sci_ccf, obj_temp, vsini=2
         print("Detecting lines in template ...")
     empirical_lines = spectrumlib.detect_lines_in_template(template_spectrum, ccf_width, ccf_step, spirou_resolution, vsini, plot=plot)
 
+    # save and read empirical lines  
+
     if mask_file != "":
         # load an input ccf  mask for comparison
         linemask = {}
@@ -396,6 +398,13 @@ def calculate_optimum_ccf_mask(template_spectrum, ref_sci_ccf, obj_temp, vsini=2
     else :
         linemask = None
 
+    #mask_width=ref_sci_ccf["MASK_WIDTH"]
+    mask_width=1.0
+    if verbose :
+        print("Creating mask of empirical lines ...")
+    catalog = spectrumlib.make_mask_of_empirical_lines(empirical_lines, mask_width=mask_width, sig_clip=5.0, min_fwhm=0.25*ref_fwhm, max_fwhm=3*ref_fwhm, use_measured_wlc=False, linemask=linemask, output=output, include_orders_in_mask=False, verbose=True, plot=True)
+    
+    """
     if verbose :
         print("Identifying detected lines with VALD database...")
     catalog = spectrumlib.identify_detected_lines(empirical_lines, vald_database, ccf_step, obj_temp, linemask=linemask, plot=False, verbose=False)
@@ -404,19 +413,19 @@ def calculate_optimum_ccf_mask(template_spectrum, ref_sci_ccf, obj_temp, vsini=2
     #ref_fwhm = rot_ccf['fwhm']
     #print("ref_fwhm=",ref_fwhm)
 
-    #mask_width=ref_sci_ccf["MASK_WIDTH"]
-    mask_width=1.0
-
     if options.verbose :
         print("Generating optimum CCF mask and saving to file: {}".format(optimum_mask))
 
     ccf_mask = spectrumlib.generate_ccf_optimal_mask(catalog, mask_width=mask_width, sig_clip=2.5, outputmask=output, include_orders_in_mask=False, min_fwhm=0.25*ref_fwhm, max_fwhm=3*ref_fwhm, use_measured_wlc=True, plot=plot)
-
+    
     return ccf_mask
+    """
+    return catalog
 
 
 parser = OptionParser()
 parser.add_option("-i", "--input", dest="input", help="Spectral *t.fits data pattern",type='string',default="*t.fits")
+parser.add_option("-t", action="store_true", dest="run_template", help="Run template", default=False)
 parser.add_option("-d", action="store_true", dest="correct_drift", help="correct RV drift", default=False)
 parser.add_option("-o", action="store_true", dest="overwrite", help="overwrite output files", default=False)
 parser.add_option("-p", action="store_true", dest="plot", help="plot", default=False)
@@ -494,49 +503,60 @@ for object in collections['object'] :
     pccfs_repo = process_ccfs(file_list, mask_file,correct_rv_drift=correct_rv_drift, rv_file=rv_file, overwrite=options.overwrite, verbose=options.verbose)
     ##########################
 
-    ##########################
-    # Create template spectrum
-    template_output = outdir + "/{}_template.fits".format(object)
 
-    if not os.path.exists(template_output) or options.overwrite :
-        if options.verbose :
-            print("Building template spectrum out of {0} spectra ...".format(len(pccfs_repo["valid_files"])))
-        try :
-            # Build template spectrum for object:
-            template_spectrum = spiroulib.template_using_fit(pccfs_repo["valid_files"], rv_file, median=True, normalize_by_continuum=True, verbose=False, plot=options.plot)
+    if options.run_template :
+        ##########################
+        # Create template spectrum
+        template_output = outdir + "/{}_template.fits".format(object)
+
+        if not os.path.exists(template_output) or options.overwrite :
+            if options.verbose :
+                print("Building template spectrum out of {0} spectra ...".format(len(pccfs_repo["valid_files"])))
+            try :
+                # Build template spectrum for object:
+                template_spectrum = spiroulib.template_using_fit(pccfs_repo["valid_files"], rv_file, median=True, normalize_by_continuum=True, verbose=False, plot=options.plot)
             
-            # Set path and filename for output template
-            if options.verbose :
-                print("Saving template spectrum in the file: {0} ".format(template_output))
-            spiroulib.write_spectrum_orders_to_fits(template_spectrum, template_output, header=fits.getheader(refexp))
-        except :
-            if options.verbose :
-                print("WARNING: could not create template, adopting template as ref spectrum:  {0} ".format(refexp))
-            template_spectrum = spiroulib.load_spirou_AB_efits_spectrum(refexp, nan_pos_filter=False, preprocess=True, source_rv=rv_sys, normalization_in_preprocess=2, normalize_blaze=True)
+                # Set path and filename for output template
+                if options.verbose :
+                    print("Saving template spectrum in the file: {0} ".format(template_output))
+                spiroulib.write_spectrum_orders_to_fits(template_spectrum, template_output, header=fits.getheader(refexp))
+            except :
+                if options.verbose :
+                    print("WARNING: could not create template, adopting template as ref spectrum:  {0} ".format(refexp))
+                template_spectrum = spiroulib.load_spirou_AB_efits_spectrum(refexp, nan_pos_filter=False, preprocess=True, source_rv=rv_sys, normalization_in_preprocess=2, normalize_blaze=True)
+        else :
+            print("Template already exists, loading spectrum from file: {0}".format(template_output))
+            # Load template spectrum
+            template_spectrum = spiroulib.read_orders_spectrum_from_fits(template_output)
+
+        ##########################
+        # Run routines to calculate an optimum mask for object using template:
+        # Set filename for output optimum mask
+        optimum_mask = outdir + "/{0}.mas".format(object)
+        if not os.path.exists(optimum_mask) or options.overwrite :
+            ccf_mask = calculate_optimum_ccf_mask(template_spectrum, ref_sci_ccf, obj_temp, mask_file=mask_file, output=optimum_mask, verbose=options.verbose)
+        ##########################
+
+        ##########################
+        # Run CCF 2nd pass using optimum mask:
+        # Set path and filename for output template
+        rv_file = outdir + "/{0}_optimummask_rv.rdb".format(object)
+        # process CCFs for all spectra using best mask from mask collection
+        pccfs_optm = process_ccfs(pccfs_repo["valid_files"], optimum_mask, correct_rv_drift=correct_rv_drift, rv_file=rv_file, overwrite=options.overwrite, verbose=options.verbose)
+        #########
+
+        # change mask name assuming the optimum mask is better than the previous mask
+        mask_file = optimum_mask
+
+        # set ccfs as the ones calculated using optimum mask
+        pccfs = pccfs_optm
     else :
-        print("Template already exists, loading spectrum from file: {0}".format(template_output))
-        # Load template spectrum
-        template_spectrum = spiroulib.read_orders_spectrum_from_fits(template_output)
-
-    ##########################
-    # Run routines to calculate an optimum mask for object using template:
-    # Set filename for output optimum mask
-    optimum_mask = outdir + "/{0}.mas".format(object)
-    if not os.path.exists(optimum_mask) or options.overwrite :
-        ccf_mask = calculate_optimum_ccf_mask(template_spectrum, ref_sci_ccf, obj_temp, mask_file=mask_file, output=optimum_mask, verbose=options.verbose)
-    ##########################
-
-    ##########################
-    # Run CCF 2nd pass using optimum mask:
-    # Set path and filename for output template
-    rv_file = outdir + "/{0}_optimummask_rv.rdb".format(object)
-    # process CCFs for all spectra using best mask from mask collection
-    pccfs_optm = process_ccfs(pccfs_repo["valid_files"], optimum_mask, correct_rv_drift=correct_rv_drift, rv_file=rv_file, overwrite=options.overwrite, verbose=options.verbose)
-    #########
-
+        # set ccfs as the ones calculated using mask from repository
+        pccfs = pccfs_repo
+    
     ##########################
     # Run CCF analysis to get object rvs using an optimized algorithm
-    mask_basename = os.path.basename(optimum_mask)
+    mask_basename = os.path.basename(mask_file)
     sanit, drs_version = False, fits.getheader(refexp)['VERSION']
     collection_key = "{}__{}__{}__{}".format(object, mask_basename, sanit, drs_version)
 
@@ -555,5 +575,5 @@ for object in collections['object'] :
     # set bandpass
     bandpass = "YJHK"
 
-    tbl = ccf2rv.get_object_rv(pccfs_optm["sci_ccf_files"], collection_key=collection_key, method="all", exclude_orders=exclude_orders, snr_min=snr_min, bandpass=bandpass, save_rdb_timeseries=True, correct_rv_drift=correct_rv_drift, save_csv_table_of_results=True, save_ccf_cube=False, save_weight_table=False, doplot=options.plot, showplots=options.plot, saveplots=options.plot, verbose=options.verbose)
+    tbl = ccf2rv.get_object_rv(pccfs["sci_ccf_files"], collection_key=collection_key, method="all", exclude_orders=exclude_orders, snr_min=snr_min, bandpass=bandpass, save_rdb_timeseries=True, correct_rv_drift=correct_rv_drift, save_csv_table_of_results=True, save_ccf_cube=False, save_weight_table=False, doplot=options.plot, showplots=options.plot, saveplots=options.plot, verbose=options.verbose)
     ##########################
