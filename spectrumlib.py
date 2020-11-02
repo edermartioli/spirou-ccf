@@ -705,8 +705,6 @@ def identify_detected_lines (loc, vald_database, min_vel_tol, Teff, linemask=Non
     new_line_rotinst_fwhm = []
     new_line_group_meanfluxerr = []
     new_line_group_noise = []
-    new_line_group_mediandvel = []
-    new_line_group_maddvel = []
 
     for order in range(len(loc['wl'])) :
         new_line_wlc.append(np.array([]))
@@ -723,8 +721,6 @@ def identify_detected_lines (loc, vald_database, min_vel_tol, Teff, linemask=Non
         new_line_rotinst_fwhm.append(np.array([]))
         new_line_group_meanfluxerr.append(np.array([]))
         new_line_group_noise.append(np.array([]))
-        new_line_group_mediandvel.append(np.array([]))
-        new_line_group_maddvel.append(np.array([]))
 
     group_id = 0
 
@@ -876,20 +872,17 @@ def identify_detected_lines (loc, vald_database, min_vel_tol, Teff, linemask=Non
                     line_meas_depth = np.interp(fit_ctr, wl_ctr, flux_ctr)
                     
                     # calculate distribution of wavelength sampling to avoid regions with
+                    # calculate distribution of wavelength sampling to avoid regions with
                     # poor sampling
                     loc_mask = ~np.isnan(flux_ctr)
-                    if len(wl_ctr[loc_mask]) > 3:
+                    if len(wl_ctr[loc_mask]) > 3 :
                         loc_dvel = (constants.c/1000.) * np.abs(wl_ctr[loc_mask][1:] - wl_ctr[loc_mask][:-1]) / fit_ctr
-                        median_dvel = np.median(loc_dvel)
-                        mad_dvel = np.median(np.abs(loc_dvel - median_dvel)) / 0.67449
+                        sparse_points = loc_dvel > 2.5
+                        fraction_of_sparse_points = float(len(loc_dvel[sparse_points]) / len(loc_dvel))
                     else :
-                        median_dvel, mad_dvel = constants.c, constants.c
-                    #print("dvel=",median_dvel," km/s  sigdvel=", mad_dvel, " km/s")
+                        fraction_of_sparse_points  = 1.
                     
-                    # only consider lines with delta lambda greater than fwhm and
-                    # where fit amplitude is lower than the mean error / 4 within range and
-                    #if ctr_err_vel < fwhm and  -fit_amp > mean_err/4 :
-                    if ctr_err_vel < fwhm and median_dvel < 2.5:
+                    if ctr_err_vel < fwhm and fraction_of_sparse_points < 0.2:
                         # plot multiple gaussian fit model
                         if verbose :
                             print("GOOD line {0:.3f} nm: ctr_err={1:.1f} < {2:.1f} km/s; fit_amp={3:.3f}(w={4:.3f}) > flux_err={5:.3f}".format(l_ctr[l], ctr_err_vel, fwhm, -fit_amp, l_w[l], mean_err))
@@ -955,9 +948,6 @@ def identify_detected_lines (loc, vald_database, min_vel_tol, Teff, linemask=Non
                         new_line_group_meanfluxerr[order] = np.append(new_line_group_meanfluxerr[order], mean_err)
                         new_line_group_noise[order] = np.append(new_line_group_noise[order], rms_residuals)
                         
-                        new_line_group_mediandvel.append(median_dvel)
-                        new_line_group_maddvel.append(mad_dvel)
-
                         # plot ACCEPTED line
                         if plot :
                             plt.plot(wl[range_mask], fit, color="blue", lw=2, alpha=0.7)
@@ -1003,10 +993,253 @@ def identify_detected_lines (loc, vald_database, min_vel_tol, Teff, linemask=Non
     catalog["rotinst_fwhm"] = new_line_rotinst_fwhm
     catalog["mean_fluxerr"] = new_line_group_meanfluxerr
     catalog["group_noise"] = new_line_group_noise
-    catalog["line_dvel"] = new_line_group_mediandvel
-    catalog["line_sigdvel"] = new_line_group_maddvel
 
     return catalog
+
+
+
+def make_mask_of_empirical_lines(loc, mask_width=1.0, sig_clip=2.5, min_fwhm=0., max_fwhm=100., use_measured_wlc=True, linemask=None, output="", include_orders_in_mask=False, verbose=False, plot=False) :
+    
+    new_line_wlc = []
+    new_line_depth = []
+    new_line_sigma = []
+
+    for order in range(len(loc['wl'])) :
+        new_line_wlc.append(np.array([]))
+        new_line_depth.append(np.array([]))
+        new_line_sigma.append(np.array([]))
+    
+    group_id = 0
+
+    for order in range(len(loc['wl'])) :
+        
+        wl = loc['wl'][order]
+        flux = loc['flux'][order]
+        fluxerr = loc['fluxerr'][order]
+    
+        # proceed if data vector is not empty
+        if len(wl) < loc['min_n_points'] :
+            continue
+        
+        if plot :
+            plt.plot(wl, flux,':', lw=0.5, color="grey")
+
+        # Calculate order central wavelength
+        wlc = (wl[0] + wl[-1]) / 2.
+
+        # Create a ccf from convolution of rotation profile and gaussian kernel from inst. resolution
+        ccf = get_rot_ccf(v_min=-loc['ccf_width'], v_max=loc['ccf_width'], v_step=loc['ccf_step'], resolution=loc['resolution'], wlc=wlc, vsini=loc['vsini'], plot=False)
+
+        line_wlc = loc['wlc'][order]
+        line_weight = loc['weight'][order]
+
+        # initialize line ranges
+        line_ranges = []
+        
+        # loop over each line in the mask to create spectral ranges around the lines
+        for l in range(len(line_wlc)) :
+            line_wl0 = line_wlc[l] * (1. - 1*ccf["fwhm"] / (constants.c / 1000.))
+            line_wlf = line_wlc[l] * (1. + 1*ccf["fwhm"] / (constants.c / 1000.))
+            line_ranges.append([line_wl0, line_wlf])
+        
+        # merge overlapping ranges into a single larger range
+        if len(line_ranges) :
+            merged_line_ranges = merge_wl_ranges(line_ranges)
+        else :
+            continue
+
+        if verbose :
+            print("Processing order={0} wl0={1:.2f} wlf={2:.2f} nlines={3} number of ranges={4}".format(order, wl[0], wl[-1], len(line_wlc), len(merged_line_ranges)))
+
+        # loop over each merged range
+        for r in merged_line_ranges :
+            group_id += 1
+            
+            # create wavelength mask to select lines within the range
+            lines_in_range = line_wlc > r[0]
+            lines_in_range &= line_wlc < r[1]
+            
+            # if a line mask is given include these lines in plot for comparison
+            if linemask != None :
+                linemask_wl_filter = linemask['LL_MASK_CTR'] > r[0]
+                linemask_wl_filter &= linemask['LL_MASK_CTR'] < r[1]
+                ll_mask_d = linemask['LL_MASK_D'][linemask_wl_filter]
+                ll_mask_ctr = linemask['LL_MASK_CTR'][linemask_wl_filter]
+                w_mask = linemask['W_MASK'][linemask_wl_filter]
+        
+            # select lines within range
+            l_ctr, l_w = line_wlc[lines_in_range], line_weight[lines_in_range]
+            l_bottom = (1.0 - l_w)
+            
+            # set number of lines within range
+            nlines = len(l_ctr)
+
+            # create wavelength mask to select spectral data within range
+            range_mask = wl > r[0]
+            range_mask &= wl < r[1]
+
+            # calculate weights as w = 1. / variance
+            weights = 1. / (fluxerr[range_mask] * fluxerr[range_mask])
+
+            # calculate mean flux error:
+            mean_err = np.nanmean(fluxerr[range_mask])
+            
+            if verbose :
+                print("Range: wl0={0:.1f} wlf={1:.1f} Nlines={2} mean_err={3:.3f}".format(r[0], r[1], nlines, mean_err))
+
+            # Use FWHM of CCF, but it needs to be carried out from loc
+            fwhm = ccf['fwhm']
+            ccf_sigma = fwhm / (2*np.sqrt(2*np.log(2)))
+            rwlc = (r[0] + r[1])/2
+            ccf_sigma_nm = ccf_sigma * rwlc / (constants.c / 1000.)
+
+            if plot :
+                plt.errorbar(wl[range_mask],flux[range_mask],yerr=fluxerr[range_mask], color="lightcoral",fmt='.', alpha=0.5)
+                
+                if linemask != None :
+                    for i in range(len(ll_mask_ctr)) :
+                        #print(i, ll_mask_ctr[i], w_mask[i], ccf_sigma_nm/5)
+                        plt.bar(ll_mask_ctr[i], w_mask[i], ccf_sigma_nm/5, bottom=(1. - w_mask[i]), color="blue", alpha=0.6)
+
+            # initialize empty array for guessed parameters
+            guess = []
+            # set guess for continuum as 1.0
+            guess.append(1.0)
+            for l in range(nlines) :
+                # set guess for line depth as - mask weight
+                guess.append(-l_w[l])
+                # set guess for line center as input mask ctr
+                guess.append(l_ctr[l])
+                # set guess for line width based on the fwhm of CCF
+                guess.append(ccf_sigma_nm)
+            # cast guess as numpy array
+            guess = np.array(guess)
+
+            # Try to fit multiple gaussian to the range
+            try :
+                # perform multiple gaussian fit
+                result, fit, efit = fit_multi_gaussian(wl[range_mask], flux[range_mask], weights=weights, guess=guess, return_fit=True, return_uncertainties=True)
+                rms_residuals = np.std(flux[range_mask]-fit)
+                
+                # loop over each line in range
+                for l in range(nlines) :
+                    # get fit parameters for current line
+                    fit_cont = result[0]
+                    fit_amp = result[1 + 3 * l]
+                    fit_ctr = result[2 + 3 * l]
+                    fit_sig = result[3 + 3 * l]
+                    
+                    # calculate deviation between measured and predicted line center
+                    ctr_err = np.abs(fit_ctr - l_ctr[l])
+                    
+                    # calculate reference fwhm in units of wavelength
+                    ref_sigma_nm = ccf_sigma *  l_ctr[l] / (constants.c / 1000.)
+                    
+                    fit_sig_vel = (constants.c / 1000.) * fit_sig / l_ctr[l]
+                    ctr_err_vel = (constants.c / 1000.) * ctr_err / l_ctr[l]
+                    
+                    ctr_mask = wl[range_mask] > fit_ctr - 2*ref_sigma_nm
+                    ctr_mask &= wl[range_mask] < fit_ctr + 2*ref_sigma_nm
+
+                    wl_ctr = wl[range_mask][ctr_mask]
+                    flux_ctr = flux[range_mask][ctr_mask]
+
+                    line_meas_depth = np.interp(fit_ctr, wl_ctr, flux_ctr)
+                    
+                    depth = 1.0 - line_meas_depth
+                    
+                    # calculate distribution of wavelength sampling to avoid regions with
+                    # poor sampling
+                    loc_mask = ~np.isnan(flux_ctr)
+                    if len(wl_ctr[loc_mask]) > 3 :
+                        loc_dvel = (constants.c/1000.) * np.abs(wl_ctr[loc_mask][1:] - wl_ctr[loc_mask][:-1]) / fit_ctr
+                        sparse_points = loc_dvel > 2.5
+                        fraction_of_sparse_points = float(len(loc_dvel[sparse_points]) / len(loc_dvel))
+                    else :
+                        fraction_of_sparse_points  = 1.
+
+                    
+                    if ctr_err_vel < fwhm and fraction_of_sparse_points < 0.2 and depth > sig_clip * mean_err and fit_sig_vel > min_fwhm / (2.*np.sqrt(2.*np.log(2.))) and fit_sig_vel < max_fwhm / (2.*np.sqrt(2.*np.log(2.))):
+                        
+                        # plot multiple gaussian fit model
+                        if verbose :
+                            print("GOOD line {0:.3f} nm: ctr_err={1:.1f} < {2:.1f} km/s; fit_amp={3:.3f}(w={4:.3f}) > flux_err={5:.3f}".format(l_ctr[l], ctr_err_vel, fwhm, -fit_amp, l_w[l], mean_err))
+                        
+                        if use_measured_wlc :
+                            new_line_wlc[order] = np.append(new_line_wlc[order], fit_ctr)
+                        else :
+                            new_line_wlc[order] = np.append(new_line_wlc[order], l_ctr[l])
+
+                        new_line_depth[order] = np.append(new_line_depth[order], 1.0 - line_meas_depth)
+                        new_line_sigma[order] = np.append(new_line_sigma[order], fit_sig_vel)
+
+                        # plot ACCEPTED line
+                        if plot :
+                            plt.plot(wl[range_mask], fit, color="blue", lw=2, alpha=0.7)
+                            bottom = line_meas_depth
+                            plt.bar(fit_ctr, 1.0 - line_meas_depth, ref_sigma_nm / 5., bottom=bottom, color="green", alpha=0.5)
+                    else :
+                        if verbose :
+                            print("BAD line {0:.3f} nm: ctr_err={1:.3f} nm; fit_amp={2:.3f}(w={3:.3f}) > flux_err={4:.3f}; fit_sig={5:.3f} km/s".format(l_ctr[l], ctr_err_vel, np.abs(fit_amp), l_w[l], mean_err, fit_sig_vel))
+                        
+                        # plot REJECTED line
+                        if plot :
+                            plt.plot(wl[range_mask], fit, color="grey", lw=2, alpha=0.7)
+                            bottom = line_meas_depth
+                            plt.bar(fit_ctr, 1.0 - line_meas_depth, ref_sigma_nm / 5., bottom=bottom, color="red", alpha=0.5)
+                        pass
+            except :
+                # print "fit failed" when line is rejected because fit didn't succeed
+                if verbose :
+                    print("BAD  line {0:.3f}: FIT FAILED".format(l_ctr[l]))
+                pass
+
+        if plot:
+            plt.title("Spectral Order {0:d}".format(order))
+            plt.ylabel(r"Flux")
+            plt.xlabel(r"$\lambda$ [nm]")
+            plt.show()
+
+    catalog = {}
+
+    catalog["wlc"] = new_line_wlc
+    catalog["depth"] = new_line_depth
+    catalog["sigma"] = new_line_sigma
+    
+    if output != "":
+        outmask_order = np.array([])
+        outmask_wl0 = np.array([])
+        outmask_wlf = np.array([])
+        outmask_weight = np.array([])
+        total_number_of_lines = 0
+        
+        for order in range(len(loc['wl'])) :
+            nlines_in_order = len(new_line_wlc)
+            print("Order {0} has {1} lines included in mask.".format(order, nlines_in_order))
+            total_number_of_lines += nlines_in_order
+            # Build mask in format needed for CCF an
+            dwl = new_line_wlc * mask_width / (constants.c/1000.)
+            mask_wl0 = new_line_wlc - dwl/2.
+            mask_wlf = new_line_wlc + dwl/2.
+            mask_weight = new_line_depth
+        
+            for i in range(len(mask_weight)) :
+                if mask_weight[i] not in outmask_weight :
+                    outmask_order = np.append(outmask_order, order)
+                    outmask_wl0 = np.append(outmask_wl0, mask_wl0[i])
+                    outmask_wlf = np.append(outmask_wlf, mask_wlf[i])
+                    outmask_weight = np.append(outmask_weight, mask_weight[i])
+    
+        print("Total of {0} lines included in output mask.".format(total_number_of_lines))
+
+        if include_orders_in_mask :
+            save_ccf_mask(output, outmask_wl0, outmask_wlf, outmask_weight, orders=outmask_order)
+        else :
+            sortmask = np.argsort(outmask_wl0)
+            save_ccf_mask(output, outmask_wl0, outmask_wlf, outmask_weight,orders=[])
+    
+    return catalog
+
 
 
 def generate_ccf_optimal_mask(catalog, mask_width = 1.0, sig_clip=1.0, min_atomic_mass=0., max_atom_mass=1e20, element="", outputmask="", include_orders_in_mask=False, min_fwhm = 0., max_fwhm=100., use_measured_wlc=True, plot=False) :
