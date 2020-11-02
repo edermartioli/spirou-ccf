@@ -84,7 +84,7 @@ def generate_collection(inputdata, verbose=False) :
                 elif "SNR35" in combhdr.keys():
                     loc_snr = float(combhdr["SNR35"])
                 else :
-                    loc_snr = np.nan
+                    loc_snr = 0
                 snr.append(loc_snr)
 
                 object_names.append(object_name)
@@ -127,7 +127,7 @@ def generate_collection(inputdata, verbose=False) :
             objtemp[objectmode[0]] = np.nan
 
         snr_per_object = snr[object_mask]
-        arg_max_snr[objectmode[0]] = np.argsort(snr_per_object)
+        arg_max_snr[objectmode[0]] = np.argsort(-1*snr_per_object)
         
         if verbose:
             print("Collection name:{0} OBJTEMP={1} NFILES={2}".format(objectmode[0],objtemp[objectmode[0]], len(collection[objectmode[0]])))
