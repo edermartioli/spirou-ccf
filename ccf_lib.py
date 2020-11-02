@@ -1033,7 +1033,7 @@ def write_file(props, infile, maskname, header, wheader, rv_drifts, verbose=Fals
 # =============================================================================
 # main routine
 # =============================================================================
-def run_ccf_new(ccf_params, spectrum, rv_drifts, valid_orders=None, output=True, science_channel=True, plot=False, interactive_plot=False, verbose=False, merge_headers=False) :
+def run_ccf_new(ccf_params, spectrum, rv_drifts, targetrv=0.0, valid_orders=None, output=True, science_channel=True, plot=False, interactive_plot=False, verbose=False, merge_headers=False) :
 
     warnings.simplefilter(action='ignore', category=FutureWarning)
     warnings.simplefilter(action='ignore', category=RuntimeWarning)
@@ -1114,12 +1114,12 @@ def run_ccf_new(ccf_params, spectrum, rv_drifts, valid_orders=None, output=True,
 
     # --------------------------------------------------------------------------
     # get rv from header (or set to zero)
-    if ('OBJRV' in header) and dprtype == 'OBJ':
-        targetrv = header['OBJRV']
-        if np.isnan(targetrv) or targetrv == ccf_params["CCF_RV_NULL"]:
-            targetrv = 0.0
-    else:
-        targetrv = 0.0
+    if targetrv == 0.:
+        if ('OBJRV' in header) and dprtype == 'OBJ':
+            targetrv = header['OBJRV']
+            if np.isnan(targetrv) or targetrv == ccf_params["CCF_RV_NULL"]:
+                targetrv = 0.0
+    
     # --------------------------------------------------------------------------
     # get mask centers, and weights
     mask_orders = []

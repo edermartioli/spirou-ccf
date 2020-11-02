@@ -225,7 +225,7 @@ def run_cal_ccf(efile, fp_mask, plot=False, verbose=False) :
     return calib_ccf
 
 
-def run_sci_ccf(tfile, sci_mask, plot=False, verbose=False) :
+def run_sci_ccf(tfile, sci_mask, source_rv=0., plot=False, verbose=False) :
 
     # try to get rv drifts
     rv_drifts = get_rv_drifts(tfile, verbose)
@@ -241,7 +241,7 @@ def run_sci_ccf(tfile, sci_mask, plot=False, verbose=False) :
     # load science CCF parameters
     ccf_params = ccf_lib.set_ccf_params(sci_mask)
     # run main routine to process ccf on science fiber
-    sci_ccf = ccf_lib.run_ccf_new(ccf_params, spectrum, rv_drifts, valid_orders=order_subset_for_mean_ccf, plot=plot, interactive_plot=False, merge_headers=True)
+    sci_ccf = ccf_lib.run_ccf_new(ccf_params, spectrum, rv_drifts,targetrv=source_rv, valid_orders=order_subset_for_mean_ccf, plot=plot, interactive_plot=False, merge_headers=True)
 
     return sci_ccf
 
@@ -298,7 +298,7 @@ def get_rv_drifts(tfits, verbose=False) :
     return loc
 
 
-def process_ccfs(file_list, mask_file, correct_rv_drift=False, rv_file="", overwrite=False, verbose=False) :
+def process_ccfs(file_list, mask_file, source_rv=0., correct_rv_drift=False, rv_file="", overwrite=False, verbose=False) :
     
     bjd, rv, rverr = [], [], []
     sci_ccf_file_list, valid_files = [], []
@@ -312,7 +312,7 @@ def process_ccfs(file_list, mask_file, correct_rv_drift=False, rv_file="", overw
                 if verbose :
                     print("Running CCF on file {0}/{1}:{2}".format(i,len(file_list)-1,os.path.basename(file_list[i])))
 
-                sci_ccf = run_sci_ccf(file_list[i], mask_file)
+                sci_ccf = run_sci_ccf(file_list[i], mask_file, source_rv=source_rv)
 
                 if verbose:
                     print("Spectrum: {0} DATE={1} SNR={2:.0f} Sci_RV={3:.5f} km/s RV_DRIFT={4:.5f} km/s".format(os.path.basename(file_list[i]), sci_ccf["header"]["DATE"],sci_ccf["header"]["SPEMSNR"], sci_ccf["header"]['RV_OBJ'], sci_ccf["header"]["RV_DRIFT"]))
@@ -500,7 +500,7 @@ for object in collections['object'] :
     # Set path and filename for output template
     rv_file = outdir + "/{0}_repomask_rv.rdb".format(object)
     # process CCFs for all spectra using best mask from mask collection
-    pccfs_repo = process_ccfs(file_list, mask_file,correct_rv_drift=correct_rv_drift, rv_file=rv_file, overwrite=options.overwrite, verbose=options.verbose)
+    pccfs_repo = process_ccfs(file_list, mask_file, source_rv=rv_sys, correct_rv_drift=correct_rv_drift, rv_file=rv_file, overwrite=options.overwrite, verbose=options.verbose)
     ##########################
 
 
@@ -542,7 +542,7 @@ for object in collections['object'] :
         # Set path and filename for output template
         rv_file = outdir + "/{0}_optimummask_rv.rdb".format(object)
         # process CCFs for all spectra using best mask from mask collection
-        pccfs_optm = process_ccfs(pccfs_repo["valid_files"], optimum_mask, correct_rv_drift=correct_rv_drift, rv_file=rv_file, overwrite=options.overwrite, verbose=options.verbose)
+        pccfs_optm = process_ccfs(pccfs_repo["valid_files"], optimum_mask, source_rv=rv_sys, correct_rv_drift=correct_rv_drift, rv_file=rv_file, overwrite=options.overwrite, verbose=options.verbose)
         #########
 
         # change mask name assuming the optimum mask is better than the previous mask
