@@ -10,7 +10,7 @@
     
     Simple usage example:
     
-    python ~/spirou-ccf/spirou_ccf_pipeline.py --input=*t.fits -vo
+    python ~/spirou-tools/spirou-ccf/spirou_ccf_pipeline.py --input=*t.fits -vo
     
     """
 
@@ -59,6 +59,7 @@ def generate_collection(inputdata, verbose=False) :
 
     for i in range(len(inputdata)) :
         try :
+            print("checking data file:",inputdata[i])
             hdr = fits.getheader(inputdata[i], 0)
             combhdr = fits.getheader(inputdata[i], 0) + fits.getheader(inputdata[i], 1)
 
@@ -225,7 +226,7 @@ def run_cal_ccf(efile, fp_mask, plot=False, verbose=False) :
     return calib_ccf
 
 
-def run_sci_ccf(tfile, sci_mask, source_rv=0., plot=False, verbose=False) :
+def run_sci_ccf(tfile, sci_mask, source_rv=0., normalize_ccfs=True, plot=False, verbose=False) :
 
     # try to get rv drifts
     rv_drifts = get_rv_drifts(tfile, verbose)
@@ -241,7 +242,7 @@ def run_sci_ccf(tfile, sci_mask, source_rv=0., plot=False, verbose=False) :
     # load science CCF parameters
     ccf_params = ccf_lib.set_ccf_params(sci_mask)
     # run main routine to process ccf on science fiber
-    sci_ccf = ccf_lib.run_ccf_new(ccf_params, spectrum, rv_drifts,targetrv=source_rv, valid_orders=order_subset_for_mean_ccf, plot=plot, interactive_plot=False, merge_headers=True)
+    sci_ccf = ccf_lib.run_ccf_new(ccf_params, spectrum, rv_drifts,targetrv=source_rv, valid_orders=order_subset_for_mean_ccf, normalize_ccfs=normalize_ccfs, plot=plot, interactive_plot=False, merge_headers=True)
 
     return sci_ccf
 
@@ -450,20 +451,20 @@ inputdata = sorted(glob.glob(options.input))
 # First bunch up all input spectra of the same object and check type of data
 collections, objtemps, arg_max_snr = generate_collection(inputdata, verbose=True)
 
-for object in collections['object'] :
+for obj in collections['object'] :
     
-    file_list = collections[object]
-    obj_temp = objtemps[object]
+    file_list = collections[obj]
+    obj_temp = objtemps[obj]
     
     # Select mask that best matches object temperature
     mask_file = select_best_ccf_mask(obj_temp, mask_repository)
     
     if options.verbose :
         print("*************************************************")
-        print("OBJECT: {0} TEFF: {1}K  REF_CCF_MASK: {2}".format(object, obj_temp,os.path.basename(mask_file)))
+        print("OBJECT: {0} TEFF: {1}K  REF_CCF_MASK: {2}".format(obj, obj_temp,os.path.basename(mask_file)))
         print("*************************************************")
 
-    file_list_sorted_by_snr = file_list[arg_max_snr[object]]
+    file_list_sorted_by_snr = file_list[arg_max_snr[obj]]
 
     # loop over the list of input files sorted by SNR, and pick the first possible ref file
     for i in range(len(file_list_sorted_by_snr)) :
@@ -498,7 +499,7 @@ for object in collections['object'] :
     ##########################
     # Run CCF 1st pass using repository mask:
     # Set path and filename for output template
-    rv_file = outdir + "/{0}_repomask_rv.rdb".format(object)
+    rv_file = outdir + "/{0}_repomask_rv.rdb".format(obj)
     # process CCFs for all spectra using best mask from mask collection
     pccfs_repo = process_ccfs(file_list, mask_file, source_rv=rv_sys, correct_rv_drift=correct_rv_drift, rv_file=rv_file, overwrite=options.overwrite, verbose=options.verbose)
     ##########################
@@ -507,7 +508,7 @@ for object in collections['object'] :
     if options.run_template :
         ##########################
         # Create template spectrum
-        template_output = outdir + "/{}_template.fits".format(object)
+        template_output = outdir + "/{}_template.fits".format(obj)
 
         if not os.path.exists(template_output) or options.overwrite :
             if options.verbose :
@@ -532,7 +533,7 @@ for object in collections['object'] :
         ##########################
         # Run routines to calculate an optimum mask for object using template:
         # Set filename for output optimum mask
-        optimum_mask = outdir + "/{0}.mas".format(object)
+        optimum_mask = outdir + "/{0}.mas".format(obj)
         if not os.path.exists(optimum_mask) or options.overwrite :
             ccf_mask = calculate_optimum_ccf_mask(template_spectrum, ref_sci_ccf, obj_temp, mask_file=mask_file, output=optimum_mask, verbose=options.verbose)
         ##########################
@@ -540,7 +541,7 @@ for object in collections['object'] :
         ##########################
         # Run CCF 2nd pass using optimum mask:
         # Set path and filename for output template
-        rv_file = outdir + "/{0}_optimummask_rv.rdb".format(object)
+        rv_file = outdir + "/{0}_optimummask_rv.rdb".format(obj)
         # process CCFs for all spectra using best mask from mask collection
         pccfs_optm = process_ccfs(pccfs_repo["valid_files"], optimum_mask, source_rv=rv_sys, correct_rv_drift=correct_rv_drift, rv_file=rv_file, overwrite=options.overwrite, verbose=options.verbose)
         #########
@@ -558,7 +559,7 @@ for object in collections['object'] :
     # Run CCF analysis to get object rvs using an optimized algorithm
     mask_basename = os.path.basename(mask_file)
     sanit, drs_version = False, fits.getheader(refexp)['VERSION']
-    collection_key = "{}__{}__{}__{}".format(object, mask_basename, sanit, drs_version)
+    collection_key = "{}__{}__{}__{}".format(obj, mask_basename, sanit, drs_version)
 
     if options.verbose :
         print("Running CCF analysis on CCF data for collection: {}".format(collection_key))

@@ -716,7 +716,8 @@ def ccf_calculation(p, wave, image, blaze, targetrv, mask_centers, mask_weights,
     return props
 
 
-def mean_ccf(p, props, targetrv, fit_type, valid_orders=None, plot=False, verbose=False):
+def mean_ccf(p, props, targetrv, fit_type, valid_orders=None, normalize_ccfs=True, plot=False, verbose=False):
+    
     allorders = [i for i in range(49)]
     
     if valid_orders == None :
@@ -725,20 +726,28 @@ def mean_ccf(p, props, targetrv, fit_type, valid_orders=None, plot=False, verbos
     else :
         ccfs = []
         for order in allorders :
+            norm_ccf = (props['CCF'][order] / np.median(props['CCF'][order]))
+
             if order in valid_orders :
-                ccfs.append(props['CCF'][order])
+                if normalize_ccfs :
+                    ccfs.append(norm_ccf)
+                else :
+                    ccfs.append(props['CCF'][order])
+
                 if plot :
-                    norm_ccf = (props['CCF'][order] / np.median(props['CCF'][order]))
                     plt.plot(props['RV_CCF'],norm_ccf, 'c-', linewidth=0.6)
             else :
                 if plot :
-                    norm_ccf = (props['CCF'][order] / np.median(props['CCF'][order]))
                     plt.plot(props['RV_CCF'],norm_ccf, 'm--', linewidth=0.3)
                 pass
         ccfs = np.array(ccfs, dtype=float)
 
     # get the average ccf
-    m_ccf = np.nanmean(ccfs, axis=0)
+    if normalize_ccfs :
+        m_ccf = np.nanmedian(ccfs, axis=0)
+    else :
+        m_ccf = np.nanmean(ccfs, axis=0)
+
 
     # get the fit for the normalized average ccf
     mean_ccf_coeffs, mean_ccf_fit = fit_ccf(props['RV_CCF'],
@@ -1033,7 +1042,7 @@ def write_file(props, infile, maskname, header, wheader, rv_drifts, verbose=Fals
 # =============================================================================
 # main routine
 # =============================================================================
-def run_ccf_new(ccf_params, spectrum, rv_drifts, targetrv=0.0, valid_orders=None, output=True, science_channel=True, plot=False, interactive_plot=False, verbose=False, merge_headers=False) :
+def run_ccf_new(ccf_params, spectrum, rv_drifts, targetrv=0.0, valid_orders=None, normalize_ccfs=True, output=True, science_channel=True, plot=False, interactive_plot=False, verbose=False, merge_headers=False) :
 
     warnings.simplefilter(action='ignore', category=FutureWarning)
     warnings.simplefilter(action='ignore', category=RuntimeWarning)
@@ -1155,7 +1164,7 @@ def run_ccf_new(ccf_params, spectrum, rv_drifts, targetrv=0.0, valid_orders=None
     # --------------------------------------------------------------------------
     if verbose :
         print('\nRunning Mean CCF')
-    props = mean_ccf(ccf_params, props, targetrv, fit_type, valid_orders=valid_orders,plot=plot)
+    props = mean_ccf(ccf_params, props, targetrv, fit_type, valid_orders=valid_orders, normalize_ccfs=normalize_ccfs, plot=plot)
 
     # --------------------------------------------------------------------------
     # Plots

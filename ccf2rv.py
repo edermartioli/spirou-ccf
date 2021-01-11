@@ -123,7 +123,7 @@ def get_object_rv(ccf_files,
     id_min = np.nanargmin(np.nanmedian(med_ccf,axis=0))
 
     # measure CCF weights
-    weights = measure_ccf_weights(ccf_cube, ccf_files, med_ccf, ccf_RV, id_min, velocity_window, exclude_orders=exclude_orders,  batch_name=batch_name, weight_table=weight_table, weight_type=weight_type, object=object, mask=mask, save_weight_table=save_weight_table, doplot=doplot, saveplot=saveplots, showplot=showplots, verbose=verbose)
+    weights = measure_ccf_weights(ccf_cube, ccf_files, med_ccf, ccf_RV, id_min, velocity_window, exclude_orders=exclude_orders,  batch_name=batch_name, weight_table=weight_table, weight_type=weight_type, obj=object, mask=mask, save_weight_table=save_weight_table, doplot=doplot, saveplots=saveplots, showplots=showplots, verbose=verbose)
 
     if doplot:
         # plot median CCFs and residuals
@@ -161,7 +161,7 @@ def get_object_rv(ccf_files,
         print("WARNING: could not calculate bisector_systemic_velocity")
         pass
     # add a measurement of the STDDEV of each mean CCF relative to the median CCF after correcting for the measured velocity. If you are going to add 'methods', add them before this line
-    med_corr_ccf = add_stddev_to_ccf(ccf_files, tbl, ccf_RV, mean_ccf, id_min, doplot=False)
+    med_corr_ccf, corr_ccf = add_stddev_to_ccf(ccf_files, tbl, ccf_RV, corr_ccf, id_min, doplot=False)
 
     tbl = calculate_resid_ccf_projections(ccf_files, tbl, ccf_RV, med_corr_ccf, corr_ccf, id_min, velocity_window, pixel_size_in_kps=2.3)
 
@@ -409,6 +409,81 @@ def apply_snr_threshold(tbl, ccf_cube, ccf_files, snr_key='EXTSN035', snr_min=1)
     return tbl, ccf_cube, ccf_files
 
 
+def build_ccf_cube(ccf_files,
+                   batch_name,
+                   exclude_orders=[-1],
+                   save_ccf_cube=False,
+                   verbose=False):
+
+    npy_file = '{}_ccf_cube.npy'.format(batch_name)
+
+    if not os.path.isfile(npy_file):
+        if verbose:
+            print('we load all CCFs into one big cube')
+        ccf_RV_previous = None
+        for i in (range(len(ccf_files))):
+            # we loop through all files
+            ccf_tbl = fits.getdata(ccf_files[i])
+
+            # ccf velocity offset, not to be confused with measured RV
+            ccf_RV = ccf_tbl['RV']
+
+            # We must absolutely have always the same RV grid for the CCF.
+            # We must check that consecutive ccf_RV are identical
+            if i != 0:
+                if np.sum(ccf_RV != ccf_RV_previous):
+                    print('We have a big problem!'
+                          'The RV vector of CCF files are not all the same')
+                    print(
+                        'Files {0} and {1} have different RV vectors.'.format(
+                            ccf_files[i-1], ccf_files[i]
+                            )
+                        )
+                    sys.exit()
+            ccf_RV_previous = np.array(ccf_RV)
+
+            if verbose:
+                print('V[min/max] {0:.1f} / {1:.1f} km/s, file {2}'.format(
+                    np.min(ccf_RV), np.max(ccf_RV), ccf_files[i]
+                    ))
+
+            # if this is the first file, we create a cube that contains all
+            # CCFs for all orders for all files
+            if i == 0:
+                ccf_cube = np.zeros([49, len(ccf_tbl), len(ccf_files)])+np.nan
+
+            # we input the CCFs in the CCF cube
+            for j in range(49):
+                tmp = ccf_tbl['ORDER'+str(j).zfill(2)]
+
+                if False not in np.isfinite(tmp):
+                    # we normalize to a continuum of 1
+                    tmp /= np.polyval(np.polyfit(ccf_RV, tmp, 1), ccf_RV)
+                    ccf_cube[j, :, i] = tmp
+
+        if save_ccf_cube:
+            if verbose:
+                print('We save {0}, this will speed things up '
+                      'next time you run this code'.format(npy_file))
+            np.save(npy_file, ccf_cube)
+
+    else:
+        if verbose:
+            print('We load {0}, this is speedier'.format(npy_file))
+        ccf_cube = np.load(npy_file)
+
+        # we need to load the first file just to get the velocity grid
+        ccf_tbl = fits.getdata(ccf_files[0])
+        ccf_RV = ccf_tbl['RV']
+
+    for j in range(49):
+        # if we need to exlude orders, we do it here.
+        if j in exclude_orders:
+            ccf_cube[j, :, :] = np.nan
+
+    return ccf_cube, ccf_tbl, ccf_RV
+
+'''
 def build_ccf_cube(ccf_files, batch_name, exclude_orders=[-1], save_ccf_cube=False, verbose=False) :
 
     npy_file = '{0}_ccf_cube.npy'.format(batch_name)
@@ -468,7 +543,7 @@ def build_ccf_cube(ccf_files, batch_name, exclude_orders=[-1], save_ccf_cube=Fal
             ccf_cube[j,:,:] = np.nan
 
     return ccf_cube, ccf_tbl, ccf_RV
-
+'''
 
 def exclude_orders_full_of_nans(exclude_orders, med_ccf, verbose=False) :
     
@@ -502,6 +577,125 @@ def exclude_orders_with_large_rv_offsets(exclude_orders, med_ccf, ccf_RV, dvmax_
     return exclude_orders
 
 
+def measure_ccf_weights(
+        ccf_cube,
+        ccf_files,
+        med_ccf,
+        ccf_RV,
+        id_min,
+        velocity_window,
+        exclude_orders=[-1],
+        batch_name='std_output',
+        weight_table='',
+        weight_type='',
+        obj='',
+        mask='',
+        save_weight_table=False,
+        doplot=False,
+        saveplots=False,
+        showplots=False,
+        verbose=False,
+        ):
+    # Find valid pixels to measure CCF properties
+    g = np.abs(ccf_RV - ccf_RV[id_min]) < velocity_window
+
+    with warnings.catch_warnings(record=True) as _:
+        # Some slices in the sum are NaNs, that's OK
+        ccf_Q = np.nansum(np.gradient(med_ccf[:, g], axis=1)**2, axis=1)
+
+    ccf_Q[ccf_Q == 0] = np.nan
+    ccf_depth = 1-med_ccf[:, id_min]
+
+    if weight_type == 'DVRMS_CC':
+        raise ValueError('DVRMS_CC not available yet')
+        # Commented out. We can implement this on separate branch
+        # weights = 1/np.nanmedian(DVRMS_CC, axis=1)**2
+        # weights[np.isfinite(weights) == False] = 0
+
+        # for iord in range(49):
+        #     if iord in exclude_orders:
+        #         weights[iord] = 0
+
+        # weights = weights/np.sum(weights)
+    else:
+        if weight_table == "" or (not os.path.isfile(weight_table)):
+            # now we find the RMS of the Nth spectrum relative to the median
+            rms = np.zeros([len(ccf_files), 49])
+            for i in range(len(ccf_files)):
+                with warnings.catch_warnings(record=True) as _:
+                    # Some slices in the median are NaNs, that's OK
+                    rms[i, :] = np.nanmedian(
+                            np.abs(ccf_cube[:, :, i] - med_ccf),
+                            axis=1
+                            )
+                rms[i, :] /= np.nanmedian(rms[i, :])
+
+            rms[:, exclude_orders] = np.nan
+
+            if doplot:
+                fig = plt.figure()
+                vmin = np.nanpercentile(rms, 3)
+                vmax = np.nanpercentile(rms, 97)
+                plt.imshow(rms, aspect='auto', vmin=vmin, vmax=vmax)
+                plt.xlabel('Nth order')
+                plt.ylabel('Nth frame')
+                plt.title('RMS of CCF relative to median')
+                if showplots:
+                    plt.show()
+                plt.close(fig)
+
+            with warnings.catch_warnings(record=True) as _:
+                # some slices in the sum are NaNs, that's OK
+                # this is the typical noise from the ccf dispersion
+                ccf_rms = np.nanmedian(rms, axis=0)
+
+            # set to NaN values that are invalid
+            ccf_rms[ccf_rms == 0] = np.nan
+
+            # Assuming that the CCF has the same depth everywhere,
+            # this is the correct weighting of orders
+            weights = ccf_Q/ccf_rms**2
+            weights[weights == 0] = np.nan
+            weights[exclude_orders] = np.nan
+            # we normalize the sum of the weights to one
+            weights /= np.nansum(weights)
+
+            if doplot:
+                fig, ax = plt.subplots(nrows=3, ncols=1, sharex=True)
+                ax[0].plot(weights, 'go')
+                ax[0].set(title='{0}, mask {1}'.format(obj, mask),
+                          xlabel='Nth order', ylabel='Relative order weight')
+
+                ax[1].plot(ccf_Q, 'go')
+                ax[1].set(xlabel='Nth order', ylabel='ccf Q')
+
+                ax[2].plot(1/ccf_rms**2, 'go')
+                ax[2].set(xlabel='Nth order', ylabel='1/$\\sigma_{CCF}^2$')
+                plt.tight_layout()
+                if saveplots:
+                    plt.savefig('{0}_weights.pdf'.format(batch_name))
+                if showplots:
+                    plt.show()
+
+            tbl_weights = Table()
+            tbl_weights['order'] = np.arange(49)
+            tbl_weights['weights'] = weights
+            tbl_weights['ccf_depth'] = ccf_depth
+            tbl_weights['ccf_Q'] = ccf_Q
+            if save_weight_table:
+                tbl_weights.write('{0}_weights.csv'.format(batch_name),
+                                  overwrite=True)
+
+        else:
+            if verbose:
+                print('You provided a weight file, we load it and'
+                      'apply weights accordingly')
+            tbl_weights = Table.read(weight_table)
+            weights = np.array(tbl_weights['weights'], dtype=float)
+            weights /= np.nansum(weights)
+
+    return weights
+"""
 def measure_ccf_weights(ccf_cube, ccf_files, med_ccf, ccf_RV, id_min, velocity_window, exclude_orders=[-1], batch_name='std_output', weight_table='', weight_type='', object='', mask='', save_weight_table=False, doplot=False, saveplot=False, showplot=False, verbose=False) :
     
     # find valid pixels to measure CCF properties
@@ -593,7 +787,7 @@ def measure_ccf_weights(ccf_cube, ccf_files, med_ccf, ccf_RV, id_min, velocity_w
             weights /= np.nansum(weights)
 
     return weights
-
+"""
 
 def apply_weights_to_ccf(ccf_cube, weights) :
     
@@ -889,7 +1083,7 @@ def add_stddev_to_ccf(ccf_files, tbl, ccf_RV, mean_ccf, id_min, doplot=False) :
         plt.plot(ccf_RV, med_corr_ccf, color='black', alpha=0.4,label = 'median CCF', linewidth=2)
         plt.show()
 
-    return med_corr_ccf
+    return med_corr_ccf, corr_ccf
 
 
 def calculate_resid_ccf_projections(ccf_files, tbl, ccf_RV, med_corr_ccf, corr_ccf, id_min, velocity_window, pixel_size_in_kps=2.3) :
@@ -926,20 +1120,25 @@ def plot_residual_ccf(ccf_files, ccf_RV, med_corr_ccf, corr_ccf, batch_name, sav
 
     residuals = []
     
+    fig,ax = plt.subplots(nrows = 2, ncols = 1, sharex=True)
+    
     for i in range(len(ccf_files)):
         residual = corr_ccf[:,i] - med_corr_ccf
 
         color = [i/len(ccf_files),1-i/len(ccf_files),1-i/len(ccf_files)]
 
-        plt.plot(ccf_RV,residual+1,color = color,alpha = 0.2)
+        ax[0].plot(ccf_RV, med_corr_ccf, color = "green", lw=2, label="median CCF")
+        
+        ax[0].plot(ccf_RV,corr_ccf[:,i],color = color, alpha = 0.2)
+        
+        ax[1].plot(ccf_RV,residual+1,color = color,alpha = 0.2)
     
         residuals.append(residual)
 
     residuals = np.array(residuals, dtype=float)
-    
-    plt.title('Residual CCFs')
-    plt.xlabel('velocity [km/s]')
-    plt.ylabel('CCF depth')
+    ax[0].set(xlabel = 'Velocity [km/s]',ylabel = 'CCF depth', title = 'Mean CCFs')
+    ax[1].set(xlabel = 'Velocity [km/s]',ylabel = 'CCF residual depth', title = 'Residual CCFs')
+    plt.tight_layout()
     #plt.legend()
     
     if saveplots :
