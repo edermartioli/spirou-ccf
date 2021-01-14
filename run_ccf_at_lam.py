@@ -58,13 +58,13 @@ else :
     #targetlist =["AUMIC","HD189733","WASP-80","GJ1214","K2-25","GJ3470","GL436","WASP-69","WASP-127"]
     #targetlist = ["TOI-1759","TOI-1452","TOI-233","K2-147","TOI-736","K2-33","TOI-442","TOI-876","TOI-732","GL699","WASP-80","GJ1214","K2-25","GJ3470","GL436","WASP-69","WASP-127"]
     #targetlist=["GJ3470","K2-33","TOI-732","GJ1214","TOI-442"]
-    #targetlist = ["AUMIC", "TOI-1452", "TOI-1759", "TOI-1278", "WASP-80", "GJ1214", "GL436","WASP-69","WASP-127","K2-25", "HD189733"]
-    targetlist = ["AUMIC"]
+    targetlist = ["AUMIC", "TOI-1452", "TOI-1759", "TOI-1278", "WASP-80", "GJ1214", "GL436","WASP-69","WASP-127","K2-25", "HD189733"]
 
-for object in targetlist :
+
+for obj in targetlist :
     
     # Set output directory name
-    outdir = "{0}/{1}".format(options.workdir,object)
+    outdir = "{0}/{1}".format(options.workdir,obj)
         
     # Check if directory exists, and create a new one if it doesn't exist
     if not os.path.exists(outdir):
@@ -73,27 +73,27 @@ for object in targetlist :
 
     try :
         # Create symbolic links to all *e.fits and *t.fits data
-        command = "ln -s {0}/{1}/reduced/*/*e.fits {2}/".format(LAMDATADIR, object, outdir)
+        command = "ln -s {0}/{1}/reduced/*/*e.fits {2}/".format(LAMDATADIR, obj, outdir)
         print("Running: ",command)
         if run_for_real :
             subprocess.check_output(command, stderr=subprocess.STDOUT,shell=True)
 
-        command = "ln -s {0}/{1}/reduced/*/*t.fits {2}/".format(LAMDATADIR, object, outdir)
+        command = "ln -s {0}/{1}/reduced/*/*t.fits {2}/".format(LAMDATADIR, obj, outdir)
         print("Running: ",command)
         if run_for_real :
             subprocess.check_output(command, stderr=subprocess.STDOUT,shell=True)
 
-        command = "ln -s {0}/{1}/reduced/*/*_pp_e2dsff_C_ccf_smart_fp_mask_C.fits {2}/".format(LAMDATADIR, object, outdir)
+        command = "ln -s {0}/{1}/reduced/*/*_pp_e2dsff_C_ccf_smart_fp_mask_C.fits {2}/".format(LAMDATADIR, obj, outdir)
         print("Running: ",command)
         if run_for_real :
             subprocess.check_output(command, stderr=subprocess.STDOUT,shell=True)
 
-        command = "python {0}/spirou_ccf_pipeline.py --input={1}/*t.fits -v".format(spirou_ccf_dir, outdir, object)
+        command = "python {0}/spirou_ccf_pipeline.py --input={1}/*t.fits -v".format(spirou_ccf_dir, outdir, obj)
         print("Running: ",command)
         if run_for_real :
             subprocess.check_output(command, stderr=subprocess.STDOUT,shell=True)
 
-        command = "python {0}/spirou_pol_pipeline.py --epattern={1}/*e.fits -L".format(spirou_pol_dir,outdir,object)
+        command = "python {0}/spirou_pol_pipeline.py --epattern={1}/*e.fits -L".format(spirou_pol_dir,outdir,obj)
         print("Running: ",command)
         if run_for_real :
             subprocess.check_output(command, stderr=subprocess.STDOUT,shell=True)
