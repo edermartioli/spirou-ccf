@@ -16,7 +16,7 @@ The following input options are available:
 --ref_spectrum to input a reference spectrum (optional, if not provided it will select the one with highest SNR)
   (e.g., --ref_spectrum=1234567t.fits)
 --source_rv to input the systemic velocity in km/s (if not provided it will measure the RV in the reference spectrum)
-  (e.g., --ref_spectrum=10.)
+  (e.g., --source_rv=10.)
 -s for saving template spectrum to `OBJECT_template.fits`
 -p for plotting
 -v for verbose
