@@ -928,7 +928,7 @@ def construct_out_ccf_filename(infile, maskname) :
     return outpath
 
 
-def write_file(props, infile, maskname, header, wheader, rv_drifts, verbose=False):
+def write_file(props, infile, maskname, header, wheader, rv_drifts, save=True, verbose=False):
 
     warnings.simplefilter('ignore', category=VerifyWarning)
 
@@ -1018,20 +1018,22 @@ def write_file(props, infile, maskname, header, wheader, rv_drifts, verbose=Fals
             header["EXTSN035"] = header["SNR35"]
         #else :
         #   header["EXTSN035"] = ??
+        
+    if save :
+        # log where we are writing the file to
+        if verbose :
+            print('Writing file to {0}'.format(outpath))
+        
+        # construct hdus
+        hdu = fits.PrimaryHDU()
+        t1 = fits.BinTableHDU(table1, header=header)
+        t2 = fits.BinTableHDU(table2, header=header)
+        # construct hdu list
+        hdulist = fits.HDUList([hdu, t1, t2])
+        # write hdulist
+        hdulist.writeto(outpath, overwrite=True)
+        props["file_path"] = outpath
 
-    # log where we are writing the file to
-    if verbose :
-        print('Writing file to {0}'.format(outpath))
-    # construct hdus
-    hdu = fits.PrimaryHDU()
-    t1 = fits.BinTableHDU(table1, header=header)
-    t2 = fits.BinTableHDU(table2, header=header)
-    # construct hdu list
-    hdulist = fits.HDUList([hdu, t1, t2])
-    # write hdulist
-    hdulist.writeto(outpath, overwrite=True)
-
-    props["file_path"] = outpath
     props["header"] = header
     props["RV_CCF"] = props['RV_CCF']
     props["MEAN_CCF"] = props['MEAN_CCF']
@@ -1123,12 +1125,11 @@ def run_ccf_new(ccf_params, spectrum, rv_drifts, targetrv=0.0, valid_orders=None
 
     # --------------------------------------------------------------------------
     # get rv from header (or set to zero)
-    if targetrv == 0.:
-        if ('OBJRV' in header) and dprtype == 'OBJ':
-            targetrv = header['OBJRV']
-            if np.isnan(targetrv) or targetrv == ccf_params["CCF_RV_NULL"]:
-                targetrv = 0.0
-    
+    if targetrv == 0. and ('OBJRV' in header) and dprtype == 'OBJ':
+        targetrv = header['OBJRV']
+        if np.isnan(targetrv) or targetrv == ccf_params["CCF_RV_NULL"]:
+            targetrv = 0.0
+
     # --------------------------------------------------------------------------
     # get mask centers, and weights
     mask_orders = []
@@ -1182,9 +1183,7 @@ def run_ccf_new(ccf_params, spectrum, rv_drifts, targetrv=0.0, valid_orders=None
     # --------------------------------------------------------------------------
     # Save file
     # --------------------------------------------------------------------------
-    # write the two tables to file CCFTABLE_{filename}_{mask}.fits
-    if output :
-        props = write_file(props, spectrum['filename'], ccf_params['MASK_FILE'], header, wheader, rv_drifts, verbose=verbose)
+    props = write_file(props, spectrum['filename'], ccf_params['MASK_FILE'], header, wheader, rv_drifts, save=output, verbose=verbose)
 
     return props
 

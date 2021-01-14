@@ -12,6 +12,8 @@
     
     python ~/spirou-tools/spirou-ccf/spirou_ccf_pipeline.py --input=*t.fits -vo
     
+    python ~/spirou-tools/spirou-ccf/spirou_ccf_pipeline.py --input=*t.fits --ccf_mask=~/spirou-tools/spirou-ccf/ccf_masks/montreal_masks/Gl905_neg.mas -vd
+    
     """
 
 __version__ = "1.0"
@@ -204,7 +206,14 @@ def select_best_ccf_mask(obj_temp, mask_repository, rv_sys=-99999.) :
     return best_mask
 
 
-def run_cal_ccf(efile, fp_mask, plot=False, verbose=False) :
+def select_apero_ccf_mask(obj_name, mask_repository) :
+    
+    apero_mask = mask_repository + 'montreal_masks/' + obj_name + '_neg_depth.mas'
+
+    return apero_mask
+
+
+def run_cal_ccf(efile, fp_mask, save_output=True, plot=False, verbose=False) :
     
     rv_drifts = {}
     rv_drifts["WFPDRIFT"] ='None'
@@ -221,12 +230,12 @@ def run_cal_ccf(efile, fp_mask, plot=False, verbose=False) :
     # load calibration CCF parameters
     ccf_fp_params = ccf_lib.set_ccf_params(fp_mask, science_channel=False)
     # run main routine to process ccf on calibration fiber
-    calib_ccf = ccf_lib.run_ccf_new(ccf_fp_params, spectrum_fp, rv_drifts, science_channel=False, plot=plot, merge_headers=True)
+    calib_ccf = ccf_lib.run_ccf_new(ccf_fp_params, spectrum_fp, rv_drifts, science_channel=False, output=save_output, plot=plot, merge_headers=True)
 
     return calib_ccf
 
 
-def run_sci_ccf(tfile, sci_mask, source_rv=0., normalize_ccfs=True, plot=False, verbose=False) :
+def run_sci_ccf(tfile, sci_mask, source_rv=0., normalize_ccfs=True, save_output=True, plot=False, verbose=False) :
 
     # try to get rv drifts
     rv_drifts = get_rv_drifts(tfile, verbose)
@@ -242,7 +251,7 @@ def run_sci_ccf(tfile, sci_mask, source_rv=0., normalize_ccfs=True, plot=False, 
     # load science CCF parameters
     ccf_params = ccf_lib.set_ccf_params(sci_mask)
     # run main routine to process ccf on science fiber
-    sci_ccf = ccf_lib.run_ccf_new(ccf_params, spectrum, rv_drifts,targetrv=source_rv, valid_orders=order_subset_for_mean_ccf, normalize_ccfs=normalize_ccfs, plot=plot, interactive_plot=False, merge_headers=True)
+    sci_ccf = ccf_lib.run_ccf_new(ccf_params, spectrum, rv_drifts,targetrv=source_rv, valid_orders=order_subset_for_mean_ccf, normalize_ccfs=normalize_ccfs, output=save_output, plot=plot, interactive_plot=False, merge_headers=True)
 
     return sci_ccf
 
@@ -424,8 +433,37 @@ def calculate_optimum_ccf_mask(template_spectrum, ref_sci_ccf, obj_temp, vsini=2
     return catalog
 
 
+def run_ccf_analysis(ccf_files, mask_file, obj="", drs_version="", sanit=False, correct_rv_drift=False, plot=False, verbose=False) :
+    ##########################
+    # Run CCF analysis to get object rvs using an optimized algorithm
+    mask_basename = os.path.basename(mask_file)
+    
+    collection_key = "{}__{}__{}__{}".format(obj, mask_basename, sanit, drs_version)
+    
+    if verbose :
+        print("Running CCF analysis on CCF data for collection: {}".format(collection_key))
+    
+    # exclude orders with strong telluric absorption
+    #exclude_orders = [-1]  # to include all orders
+    exclude_orders = [11,12,22,23,24,25,26,27,37,38,39,40,47,48]
+
+    # Set minimum SNR.
+    #snr_min = np.nanmedian(snr) - 3. * np.nanstd(snr)
+    #if snr_min < 1 : snr_min = 1.
+    snr_min=20.
+    
+    # set bandpass
+    bandpass = "YJHK"
+    
+    tbl = ccf2rv.get_object_rv(ccf_files, collection_key=collection_key, method="all", exclude_orders=exclude_orders, snr_min=snr_min, bandpass=bandpass, save_rdb_timeseries=True, correct_rv_drift=correct_rv_drift, save_csv_table_of_results=True, save_ccf_cube=False, save_weight_table=False, doplot=plot, showplots=plot, saveplots=plot, verbose=verbose)
+    ##########################
+
+
 parser = OptionParser()
 parser.add_option("-i", "--input", dest="input", help="Spectral *t.fits data pattern",type='string',default="*t.fits")
+parser.add_option("-m", "--ccf_mask", dest="ccf_mask", help="Input CCF mask",type='string',default="")
+parser.add_option("-r", "--ref_spectrum", dest="ref_spectrum", help="Input reference spectrum",type='string',default="")
+parser.add_option("-s", "--source_rv", dest="source_rv", help="Input source RV [km/s]",type='float',default=0.0)
 parser.add_option("-t", action="store_true", dest="run_template", help="Run template", default=False)
 parser.add_option("-d", action="store_true", dest="correct_drift", help="correct RV drift", default=False)
 parser.add_option("-o", action="store_true", dest="overwrite", help="overwrite output files", default=False)
@@ -440,6 +478,12 @@ except:
 
 if options.verbose:
     print('Spectral t.fits data pattern: ', options.input)
+    if options.ccf_mask != "":
+        print('Input CCF mask: ', options.ccf_mask)
+    if options.ref_spectrum != "":
+        print('Input reference spectrum: ', options.ref_spectrum)
+    if options.source_rv :
+        print('Input source RV [km/s]: ', options.source_rv)
 
 correct_rv_drift = options.correct_drift
 
@@ -456,54 +500,92 @@ for obj in collections['object'] :
     file_list = collections[obj]
     obj_temp = objtemps[obj]
     
-    # Select mask that best matches object temperature
-    mask_file = select_best_ccf_mask(obj_temp, mask_repository)
+    if options.ccf_mask != "" :
+        # Force to use an input mask
+        mask_file = options.ccf_mask
+    else :
+        # Select mask that best matches object temperature
+        mask_file = select_best_ccf_mask(obj_temp, mask_repository)
     
     if options.verbose :
         print("*************************************************")
         print("OBJECT: {0} TEFF: {1}K  REF_CCF_MASK: {2}".format(obj, obj_temp,os.path.basename(mask_file)))
         print("*************************************************")
 
-    file_list_sorted_by_snr = file_list[arg_max_snr[obj]]
 
-    # loop over the list of input files sorted by SNR, and pick the first possible ref file
-    for i in range(len(file_list_sorted_by_snr)) :
+    ref_not_processed = True
+
+    if options.ref_spectrum != "" :
+        refexp = options.ref_spectrum
         try :
             if options.verbose :
-                print("Trying to run CCF on reference exposure:{}".format(os.path.basename(file_list_sorted_by_snr[i])))
-            # set reference exposure as the one with maximum SNR
-            refexp = file_list_sorted_by_snr[i]
+                print("Trying to run CCF on reference exposure:{}".format(os.path.basename(refexp)))
             # Run ccf on the reference spectrum, i.e., the one with maximum SNR:
-            ref_sci_ccf = run_sci_ccf(refexp, mask_file, plot=options.plot)
-            # get out of the loop when succeed to calculate CCF
-            break
+            ref_sci_ccf = run_sci_ccf(refexp, mask_file, source_rv=options.source_rv, save_output=False, plot=options.plot)
+            
+            ref_not_processed = False
         except :
             print("WARNING: could not select file {} as reference, skipping ...".format(refexp))
-            continue
 
+                
+    if ref_not_processed :
+        
+        file_list_sorted_by_snr = file_list[arg_max_snr[obj]]
+
+        # loop over the list of input files sorted by SNR, and pick the first possible ref file
+        for i in range(len(file_list_sorted_by_snr)) :
+            try :
+                #set reference exposure as the one with maximum SNR
+                refexp = file_list_sorted_by_snr[i]
+
+                if options.verbose :
+                    print("Trying to run CCF on reference exposure:{}".format(os.path.basename(refexp)))
+
+                # Run ccf on the reference spectrum, i.e., the one with maximum SNR:
+                ref_sci_ccf = run_sci_ccf(refexp, mask_file, source_rv=options.source_rv, save_output=False, plot=options.plot)
+
+                ref_not_processed = False
+                # get out of the loop when succeed to calculate CCF
+                break
+            except :
+                print("WARNING: could not select file {} as reference, skipping ...".format(refexp))
+                continue
+
+    if ref_not_processed :
+        print("ERROR: could not select any file as reference, exiting ...")
+        exit()
+    
     # Set path for output files
     abs_path_of_ref_spectrum = os.path.abspath(refexp)
     outdir = os.path.dirname(abs_path_of_ref_spectrum)
 
-    # Set systemic velocity to the RV measured on the reference exposure
-    rv_sys = ref_sci_ccf["header"]['RV_OBJ']
+    if options.source_rv :
+        # Set systemic velocity to the input source RV
+        rv_sys = options.source_rv
+    else :
+        # Set systemic velocity to the RV measured on the reference exposure
+        rv_sys = ref_sci_ccf["header"]['RV_OBJ']
 
     if options.verbose :
-        print("Reference spectrum {0} observed on {1} showing RV_sys={2:.5f} km/s".format(refexp, ref_sci_ccf["header"]["DATE"], rv_sys))
+        print("Reference spectrum {0} observed on {1} SNR={2} showing RV_sys={3:.5f} km/s".format(os.path.basename(refexp), ref_sci_ccf["header"]["DATE"], ref_sci_ccf["header"]["SPEMSNR"], rv_sys))
 
-    # Select best mask based on measured RV sys
-    mask_file = select_best_ccf_mask(obj_temp, mask_repository, rv_sys=rv_sys)
-    if options.verbose :
-        print("Selected optimal CCF MASK: {0}".format(mask_file))
+    if options.ccf_mask == "" :
+        # Select best mask based on measured RV sys
+        mask_file = select_best_ccf_mask(obj_temp, mask_repository, rv_sys=rv_sys)
+        if options.verbose :
+            print("Selected optimal CCF MASK: {0}".format(mask_file))
 
     ##########################
-    # Run CCF 1st pass using repository mask:
+    # Run CCF:
     # Set path and filename for output template
-    rv_file = outdir + "/{0}_repomask_rv.rdb".format(obj)
+    mask_basename = os.path.basename(mask_file)
+    rv_file = outdir + "/{0}_{1}_rv.rdb".format(obj,mask_basename)
     # process CCFs for all spectra using best mask from mask collection
-    pccfs_repo = process_ccfs(file_list, mask_file, source_rv=rv_sys, correct_rv_drift=correct_rv_drift, rv_file=rv_file, overwrite=options.overwrite, verbose=options.verbose)
+    pccfs = process_ccfs(file_list, mask_file, source_rv=rv_sys, correct_rv_drift=correct_rv_drift, rv_file=rv_file, overwrite=options.overwrite, verbose=options.verbose)
     ##########################
 
+    # Run CCF analysis on CCF data calculated previously to obtain optimal RVs
+    run_ccf_analysis(pccfs["sci_ccf_files"], mask_file, obj=obj, drs_version=fits.getheader(refexp)['VERSION'], correct_rv_drift=correct_rv_drift, plot=options.plot, verbose=options.verbose)
 
     if options.run_template :
         ##########################
@@ -512,10 +594,10 @@ for obj in collections['object'] :
 
         if not os.path.exists(template_output) or options.overwrite :
             if options.verbose :
-                print("Building template spectrum out of {0} spectra ...".format(len(pccfs_repo["valid_files"])))
+                print("Building template spectrum out of {0} spectra ...".format(len(pccfs["valid_files"])))
             try :
                 # Build template spectrum for object:
-                template_spectrum = spiroulib.template_using_fit(pccfs_repo["valid_files"], rv_file, median=True, normalize_by_continuum=True, verbose=False, plot=options.plot)
+                template_spectrum = spiroulib.template_using_fit(pccfs["valid_files"], rv_file, median=True, normalize_by_continuum=True, verbose=False, plot=options.plot)
             
                 # Set path and filename for output template
                 if options.verbose :
@@ -533,48 +615,15 @@ for obj in collections['object'] :
         ##########################
         # Run routines to calculate an optimum mask for object using template:
         # Set filename for output optimum mask
-        optimum_mask = outdir + "/{0}.mas".format(obj)
-        if not os.path.exists(optimum_mask) or options.overwrite :
-            ccf_mask = calculate_optimum_ccf_mask(template_spectrum, ref_sci_ccf, obj_temp, mask_file=mask_file, output=optimum_mask, verbose=options.verbose)
+        #optimum_mask = outdir + "/{0}.mas".format(obj)
+        #if not os.path.exists(optimum_mask) or options.overwrite :
+        #    ccf_mask = calculate_optimum_ccf_mask(template_spectrum, ref_sci_ccf, obj_temp, mask_file=mask_file, output=optimum_mask, verbose=options.verbose)
         ##########################
 
-        ##########################
-        # Run CCF 2nd pass using optimum mask:
-        # Set path and filename for output template
-        rv_file = outdir + "/{0}_optimummask_rv.rdb".format(obj)
-        # process CCFs for all spectra using best mask from mask collection
-        pccfs_optm = process_ccfs(pccfs_repo["valid_files"], optimum_mask, source_rv=rv_sys, correct_rv_drift=correct_rv_drift, rv_file=rv_file, overwrite=options.overwrite, verbose=options.verbose)
-        #########
 
-        # change mask name assuming the optimum mask is better than the previous mask
-        mask_file = optimum_mask
 
-        # set ccfs as the ones calculated using optimum mask
-        pccfs = pccfs_optm
-    else :
-        # set ccfs as the ones calculated using mask from repository
-        pccfs = pccfs_repo
-    
-    ##########################
-    # Run CCF analysis to get object rvs using an optimized algorithm
-    mask_basename = os.path.basename(mask_file)
-    sanit, drs_version = False, fits.getheader(refexp)['VERSION']
-    collection_key = "{}__{}__{}__{}".format(obj, mask_basename, sanit, drs_version)
 
-    if options.verbose :
-        print("Running CCF analysis on CCF data for collection: {}".format(collection_key))
 
-    # exclude orders with strong telluric absorption
-    #exclude_orders = [-1]  # to include all orders
-    exclude_orders = [11,12,22,23,24,25,26,27,37,38,39,40,47,48]
 
-    # Set minimum SNR.
-    #snr_min = np.nanmedian(snr) - 3. * np.nanstd(snr)
-    #if snr_min < 1 : snr_min = 1.
-    snr_min=20.
 
-    # set bandpass
-    bandpass = "YJHK"
 
-    tbl = ccf2rv.get_object_rv(pccfs["sci_ccf_files"], collection_key=collection_key, method="all", exclude_orders=exclude_orders, snr_min=snr_min, bandpass=bandpass, save_rdb_timeseries=True, correct_rv_drift=correct_rv_drift, save_csv_table_of_results=True, save_ccf_cube=False, save_weight_table=False, doplot=options.plot, showplots=options.plot, saveplots=options.plot, verbose=options.verbose)
-    ##########################
