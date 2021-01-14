@@ -450,7 +450,7 @@ def build_template(flux, wl, sig_clip = 0.0, fit=False, verbose=False, median=Tr
     loc = {}
 
     if median :
-        flux_med = np.median(flux,axis=0)
+        flux_med = np.nanmedian(flux,axis=0)
     else :
         flux_med = np.nanmean(flux,axis=0)
 
@@ -482,7 +482,7 @@ def build_template(flux, wl, sig_clip = 0.0, fit=False, verbose=False, median=Tr
 
         # Compute median on all spectra along the time axis
         if median :
-            flux_med_new = np.median(flux_calib,axis=0)
+            flux_med_new = np.nanmedian(flux_calib,axis=0)
         else :
             flux_med_new = np.nanmean(flux_calib,axis=0)
 
@@ -493,7 +493,7 @@ def build_template(flux, wl, sig_clip = 0.0, fit=False, verbose=False, median=Tr
             flux_sub = flux_calib / flux_med
 
         residuals = flux_calib - flux_med
-        flux_medsig = np.median(np.abs(residuals),axis=0) / 0.67449
+        flux_medsig = np.nanmedian(np.abs(residuals),axis=0) / 0.67449
 
     else :
         # Divide or subtract each flux by flux_med
@@ -503,7 +503,7 @@ def build_template(flux, wl, sig_clip = 0.0, fit=False, verbose=False, median=Tr
             flux_sub = flux / flux_med
 
         residuals = flux - flux_med
-        flux_medsig = np.median(np.abs(residuals),axis=0) / 0.67449
+        flux_medsig = np.nanmedian(np.abs(residuals),axis=0) / 0.67449
 
     # 1D quantities:
     # Fill in NaN's...
@@ -541,7 +541,7 @@ def template_using_fit(inputdata, rv_filename, median=False, normalize_by_contin
     loc = {}
     
     # store input list of data files
-    loc['inputdata'] = inputdata
+    loc['inputdata'] = np.array(inputdata)
     # store input list of rv data files
     loc['rv_filename'] = rv_filename
 
@@ -580,6 +580,7 @@ def template_using_fit(inputdata, rv_filename, median=False, normalize_by_contin
     airmass = np.array(airmass, dtype=float)
     snr = np.array(snr, dtype=float)
     berv = np.array(berv, dtype=float)
+
     if rv_filename != "":
         # load vector of rv doppler shifts in the rv data file
         rv_loc = load_rv_shifts_from_rdb(rv_filename)
@@ -655,12 +656,11 @@ def template_using_fit(inputdata, rv_filename, median=False, normalize_by_contin
                 spectra_flux.append(out_flux)
                 spectra_fluxerr.append(out_fluxerr)
             else :
-                spectra_flux.append(np.array([]))
-                spectra_fluxerr.append(np.array([]))
+                spectra_flux.append(np.full_like(spectra_wl,np.nan))
+                spectra_fluxerr.append(np.full_like(spectra_wl,np.nan))
 
 
         if has_valid_data :
-            
             spectra_flux = np.array(spectra_flux, dtype=float)
             spectra_fluxerr = np.array(spectra_fluxerr, dtype=float)
 

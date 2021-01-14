@@ -502,7 +502,7 @@ for obj in collections['object'] :
     
     if options.ccf_mask != "" :
         # Force to use an input mask
-        mask_file = options.ccf_mask
+        mask_file = os.path.normpath(options.ccf_mask)
     else :
         # Select mask that best matches object temperature
         mask_file = select_best_ccf_mask(obj_temp, mask_repository)
@@ -511,7 +511,6 @@ for obj in collections['object'] :
         print("*************************************************")
         print("OBJECT: {0} TEFF: {1}K  REF_CCF_MASK: {2}".format(obj, obj_temp,os.path.basename(mask_file)))
         print("*************************************************")
-
 
     ref_not_processed = True
 
