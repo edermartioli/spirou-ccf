@@ -4,7 +4,7 @@ Wrapper to perform CCF measurements and CCF analysis to obtain radial velocities
 To start using this tool one needs a set of SPIRou spectra in `*t.fits` format saved in the same directory.  Then run the following example:
 
 ```
-python ~/spirou-ccf/spirou_ccf_pipeline.py --input=*t.fits -vs
+python ~/spirou-ccf/spirou_ccf_pipeline.py --input=*t.fits -vds
 ```
 
 The following input options are available:
@@ -17,7 +17,10 @@ The following input options are available:
   (e.g., --ref_spectrum=1234567t.fits)
 --source_rv to input the systemic velocity in km/s (if not provided it will measure the RV in the reference spectrum)
   (e.g., --source_rv=10.)
--s for saving template spectrum to `OBJECT_template.fits`
+-s for stacking each polar sequence before running CCF analyis
+-t for generating template spectrum, wihch is saved to `OBJECT_template.fits`
+-d for applying instrumental RV drift correction from simultaneous FP exposure
+-o for overlapping existing data
 -p for plotting
 -v for verbose
 ```
