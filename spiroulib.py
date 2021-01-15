@@ -1212,3 +1212,177 @@ def save_rv_time_series(output, bjd, rv, rverr, time_in_rjd=True, rv_in_mps=Fals
             outfile.write("{0:.10f}\t{1:.5f}\t{2:.5f}\n".format(rjd, rv[i], rverr[i]))
 
     outfile.close()
+
+
+
+def generate_polar_sets(file_list, verbose=False) :
+
+    polar_sets = {}
+    
+    current_exp_num = 0
+    pol_sequence = ["","","",""]
+
+    for i in range(len(file_list)) :
+
+        hdr = fits.getheader(file_list[i])
+    
+        if "SBRHB1_P" in hdr.keys() and "SBRHB2_P" in hdr.keys() :
+        
+            if hdr["SBRHB1_P"] == "P16" and hdr["SBRHB2_P"] == "P16" :
+                current_exp_num = 0
+                if verbose :
+                    print("File:",file_list[i], "is in spectroscopic mode, skipping ...")
+                continue
+        
+            elif hdr["SBRHB1_P"] == "P14" and hdr["SBRHB2_P"] == "P16" :
+                pol_sequence[0] = file_list[i]
+            
+                current_exp_num = 1
+        
+            elif hdr["SBRHB1_P"] == "P2" and hdr["SBRHB2_P"] == "P16":
+                if current_exp_num == 1 :
+                    if verbose :
+                        print("File:",file_list[i], "is exposure 2, OK ...")
+                    pol_sequence[current_exp_num] = file_list[i]
+                    current_exp_num = 2
+                elif current_exp_num == -1 :
+                    if verbose:
+                        print("File",file_list[i]," is part of skipped seqeuence ...")
+                    continue
+                else :
+                    current_exp_num = 0
+                    if verbose :
+                        print("File",file_list[i]," is exposure 2, but sequence is out-of-order, skipping ...")
+                    continue
+            elif hdr["SBRHB1_P"] == "P2" and hdr["SBRHB2_P"] == "P4":
+                if current_exp_num == 2 :
+                    if verbose :
+                        print("File:",file_list[i], "is exposure 3, OK ...")
+                    pol_sequence[current_exp_num] = file_list[i]
+                    current_exp_num = 3
+                elif current_exp_num == -1 :
+                    if verbose :
+                        print("File",file_list[i]," is part of skipped seqeuence ...")
+                    continue
+                else :
+                    current_exp_num = 0
+                    if verbose :
+                        print("File",file_list[i]," is exposure 3, but sequence is out-of-order, skipping ...")
+                    continue
+
+            elif hdr["SBRHB1_P"] == "P14" and hdr["SBRHB2_P"] == "P4":
+                if current_exp_num == 3 :
+                    if verbose :
+                        print("File:",file_list[i], "is exposure 4, OK ...")
+                    
+                    pol_sequence[current_exp_num] = file_list[i]
+                
+                    if verbose:
+                        print("Stacking polarimetric sequence:", pol_sequence)
+                
+                    polar_sets[pol_sequence[0]] = deepcopy(pol_sequence)
+                
+                    current_exp_num = 0
+                elif current_exp_num == -1 :
+                    if verbose :
+                        print("File",file_list[i]," is part of skipped seqeuence ...")
+                    continue
+                else :
+                    current_exp_num = 0
+                    if verbose :
+                        print("File",file_list[i]," is exposure 4, but sequence is out-of-order, skipping ...")
+                    continue
+            else :
+                current_exp_num = 0
+                if verbose :
+                    print("File:",file_list[i], "is in UNKNOWN mode, skipping ...")
+                continue
+
+        else :
+            current_exp_num = 0
+            if verbose :
+                print("File:",file_list[i], "does not have keywords SBRHB1_P and SBRHB2_P, skipping ...")
+            continue
+
+    return polar_sets
+
+
+def stack_polar_sequence(polar_sets, correct_drift=False, overwrite=True) :
+
+    output_file_list = []
+    
+    for key in polar_sets.keys() :
+    
+        output_filename = str(key).replace("t.fits","stack_t.fits")
+        exp = polar_sets[key]
+
+        if not os.path.exists(output_filename) or overwrite :
+        
+            hdu_base = fits.open(exp[0])
+            header0 = hdu_base[0].header
+            header1 = hdu_base[1].header
+            
+            tot_exptime = float(header0['EXPTIME'])
+            meanbjd = float(header1['BJD'])
+            meanberv = float(header1['BERV'])
+            totsnr = float(header0['SPEMSNR'])
+            
+            for i in range(1,len(exp)) :
+                # Load SPIRou reduced *t.fits file
+                spc = fits.open(exp[0])
+                hdr0 = spc[0].header
+                hdr1 = spc[1].header
+            
+                # calcualte total exposure time
+                tot_exptime += float(hdr0['EXPTIME'])
+
+                meanbjd += float(hdr1['BJD'])
+                meanberv += float(hdr1['BERV'])
+                totsnr += float(hdr0['SPEMSNR'])
+                
+                for order in range(49) :
+                    hdu_base['FluxAB'].data[order] += spc['FluxAB'].data[order]
+        
+            meanbjd /= len(exp)
+            meanberv /= len(exp)
+            totsnr /= np.sqrt(float(len(exp)))
+            
+            #update header
+            hdu_base[0].header['EXPTIME'] = tot_exptime
+            hdu_base[1].header['BJD'] = meanbjd
+            hdu_base[1].header['BERV'] = meanberv
+            hdu_base[0].header['SPEMSNR'] = totsnr
+
+            hdu_base.writeto(output_filename, overwrite=True)
+
+        output_file_list.append(output_filename)
+                
+        if correct_drift :
+            
+            output_fp_filename = output_filename.replace("t.fits","o_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
+            
+            if not os.path.exists(output_fp_filename) or overwrite :
+                
+                fp_exp0 = str(exp[0]).replace("t.fits","o_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
+                
+                if os.path.exists(fp_exp0) :
+                    hdu_fp_base = fits.open(fp_exp0)
+                    fp_header1 = hdu_fp_base[1].header
+
+                    mean_rv_drift = float(fp_header1['RV_DRIFT'])
+                    for i in range(1,len(exp)) :
+                        fpfits_tmp = str(exp[i]).replace("t.fits","o_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")
+                        fphdr1 = fits.getheader(fpfits_tmp,1)
+                        mean_rv_drift += fphdr1["RV_DRIFT"]
+                    mean_rv_drift /= len(exp)
+
+                    #update header
+                    hdu_fp_base[1].header['RV_DRIFT'] = mean_rv_drift
+
+                    #write output fp file
+                    hdu_fp_base.writeto(output_fp_filename, overwrite=True)
+                else :
+                    # it could use *e.fits instead, but it requires implementing the stacking of *e.fits
+                    print("WARNING: fp file to obtain RV_DRIFT not found, skipping ...")
+    
+    return output_file_list

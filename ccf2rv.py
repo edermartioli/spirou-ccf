@@ -564,7 +564,7 @@ def exclude_orders_with_large_rv_offsets(exclude_orders, med_ccf, ccf_RV, dvmax_
 
     # find if a given CCF is off by more than the pre-defined threshold
     dv_CCF_min = (ccf_RV[np.argmin(med_ccf,axis = 1)] - ccf_RV[id_min])
-    bad_orders = dvmax_per_order<np.abs(dv_CCF_min)
+    bad_orders = dvmax_per_order < np.abs(dv_CCF_min)
 
     for iord in range(49):
         if iord not in exclude_orders:

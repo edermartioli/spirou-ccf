@@ -92,6 +92,7 @@ def set_ccf_params(maskfile, science_channel=True) :
         loc["CCF_STEP"] = 0.5                     # CCF_DEFAULT_STEP (or user input)
         #loc["CCF_WIDTH"] = 300                    # CCF_DEFAULT_WIDTH (or user input)
         loc["CCF_WIDTH"] = 100                     # CCF_DEFAULT_WIDTH (or user input)
+        #loc["CCF_WIDTH"] = 50                     # CCF_DEFAULT_WIDTH (or user input)
         loc["CCF_RV_NULL"] = -9999.99             # CCF_OBJRV_NULL_VAL
         loc["CCF_N_ORD_MAX"] = 48                 # CCF_N_ORD_MAX
         loc["BLAZE_NORM_PERCENTILE"] = 90         # CCF_BLAZE_NORM_PERCENTILE

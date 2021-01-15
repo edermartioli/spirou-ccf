@@ -462,8 +462,9 @@ def run_ccf_analysis(ccf_files, mask_file, obj="", drs_version="", sanit=False, 
 parser = OptionParser()
 parser.add_option("-i", "--input", dest="input", help="Spectral *t.fits data pattern",type='string',default="*t.fits")
 parser.add_option("-m", "--ccf_mask", dest="ccf_mask", help="Input CCF mask",type='string',default="")
-parser.add_option("-r", "--ref_spectrum", dest="ref_spectrum", help="Input reference spectrum",type='string',default="")
-parser.add_option("-s", "--source_rv", dest="source_rv", help="Input source RV [km/s]",type='float',default=0.0)
+parser.add_option("-e", "--ref_spectrum", dest="ref_spectrum", help="Input reference spectrum",type='string',default="")
+parser.add_option("-r", "--source_rv", dest="source_rv", help="Input source RV [km/s]",type='float',default=0.0)
+parser.add_option("-s", action="store_true", dest="stack_polar", help="Stack polar sequence", default=False)
 parser.add_option("-t", action="store_true", dest="run_template", help="Run template", default=False)
 parser.add_option("-d", action="store_true", dest="correct_drift", help="correct RV drift", default=False)
 parser.add_option("-o", action="store_true", dest="overwrite", help="overwrite output files", default=False)
@@ -491,6 +492,12 @@ correct_rv_drift = options.correct_drift
 if options.verbose:
     print("Creating list of t.fits spectrum files...")
 inputdata = sorted(glob.glob(options.input))
+
+if options.stack_polar :
+    polar_sets = spiroulib.generate_polar_sets(inputdata, verbose=False)
+
+    inputdata = spiroulib.stack_polar_sequence(polar_sets, correct_drift=options.correct_drift, overwrite=options.overwrite)
+
 
 # First bunch up all input spectra of the same object and check type of data
 collections, objtemps, arg_max_snr = generate_collection(inputdata, verbose=True)
