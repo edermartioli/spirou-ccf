@@ -55,6 +55,10 @@ if options.verbose:
     print("Creating list of RV data files...")
 rv_files = sorted(glob.glob(options.pattern))
 
+if len(rv_files) == 0:
+    print("Could not find input files that match pattern {}, exiting ... ".format(options.pattern))
+    exit()
+
 fixed_period = False
 
 bjd, rv, rverr = [], [], []
@@ -74,6 +78,10 @@ for i in range(len(rv_files)):
 bjd = np.array(bjd)
 rv = np.array(rv)
 rverr = np.array(rverr)
+
+if len(bjd) == 0:
+    print("Time array with zero length, exiting ...")
+    exit()
 
 mean_rv = np.mean(rv, axis=0)
 
