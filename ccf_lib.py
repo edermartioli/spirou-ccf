@@ -6,7 +6,7 @@ Created on 2020-03-27 at 13:42
 @author: cook (adapted by E. Martioli on 2020-04-28)
 """
 from astropy.io import fits
-from astropy.table import Table
+from astropy.table import vstack,Table
 from astropy import units as uu
 import numpy as np
 import warnings
@@ -18,6 +18,7 @@ from scipy.stats import chisquare
 import matplotlib.pyplot as plt
 from astropy.io.fits.verify import VerifyWarning
 import warnings
+from scipy import constants
 
 helpstr = """
 ----------------------------------------------------------------------------
@@ -66,11 +67,15 @@ SPEED_OF_LIGHT = 299792.458    # [km/s]
 # whether to plot (True or False)
 PLOT = True
 
-def set_ccf_params(maskfile, science_channel=True) :
+def set_ccf_params(maskfile, telluric_masks=[], science_channel=True) :
     
     loc = {}
     loc["MASK_FILE"] = maskfile
-
+    loc["TELL_MASK_FILES"] = []
+    if len(telluric_masks) :
+        for m in telluric_masks :
+            loc["TELL_MASK_FILES"].append(m)
+    
     # CCF is a set of Dirac functions
     #loc["KERNEL"] = None
     # boxcar length expressed in km/s
@@ -92,7 +97,7 @@ def set_ccf_params(maskfile, science_channel=True) :
         loc["CCF_STEP"] = 0.5                     # CCF_DEFAULT_STEP (or user input)
         #loc["CCF_WIDTH"] = 300                    # CCF_DEFAULT_WIDTH (or user input)
         loc["CCF_WIDTH"] = 100                     # CCF_DEFAULT_WIDTH (or user input)
-        #loc["CCF_WIDTH"] = 50                     # CCF_DEFAULT_WIDTH (or user input)
+        #loc["CCF_WIDTH"] = 60                     # CCF_DEFAULT_WIDTH (or user input)
         loc["CCF_RV_NULL"] = -9999.99             # CCF_OBJRV_NULL_VAL
         loc["CCF_N_ORD_MAX"] = 48                 # CCF_N_ORD_MAX
         loc["BLAZE_NORM_PERCENTILE"] = 90         # CCF_BLAZE_NORM_PERCENTILE
@@ -613,8 +618,8 @@ def ccf_calculation(p, wave, image, blaze, targetrv, mask_centers, mask_weights,
             ccf_norm_all.append(np.nan)
             continue
         # ------------------------------------------------------------------
-        # deal with all nan
-        if np.sum(nanmask) == nbpix:
+        # deal with orders where number of nans is too large (> 90% of order size)
+        if np.sum(nanmask) > nbpix * 0.9:
             if verbose:
                 print('\tWARNING: ALL SP OR BLZ NAN --> NAN')
             # set all values to NaN
@@ -727,7 +732,7 @@ def mean_ccf(p, props, targetrv, fit_type, valid_orders=None, normalize_ccfs=Tru
     else :
         ccfs = []
         for order in allorders :
-            norm_ccf = (props['CCF'][order] / np.median(props['CCF'][order]))
+            norm_ccf = (props['CCF'][order] / np.nanmedian(props['CCF'][order]))
 
             if order in valid_orders :
                 if normalize_ccfs :
@@ -756,8 +761,8 @@ def mean_ccf(p, props, targetrv, fit_type, valid_orders=None, normalize_ccfs=Tru
 
 
     if plot :
-        plt.plot(props['RV_CCF'], m_ccf / np.median(m_ccf), 'r--', linewidth=2, label="Mean CCF using {0} orders".format(len(valid_orders)))
-        plt.plot(props['RV_CCF'], mean_ccf_fit / np.median(mean_ccf_fit), 'g-', linewidth=2, label="Model CCF")
+        plt.plot(props['RV_CCF'], m_ccf / np.nanmedian(m_ccf), 'r--', linewidth=2, label="Mean CCF using {0} orders".format(len(valid_orders)))
+        plt.plot(props['RV_CCF'], mean_ccf_fit / np.nanmedian(mean_ccf_fit), 'g-', linewidth=2, label="Model CCF")
 
         plt.xlabel(r"Velocity [km/s]")
         plt.ylabel(r"Relative flux")
@@ -799,11 +804,18 @@ def mean_ccf(p, props, targetrv, fit_type, valid_orders=None, normalize_ccfs=Tru
     # --------------------------------------------------------------------------
     # add to output array
     props['MEAN_CCF'] = m_ccf
-    props['MEAN_RV'] = ccf_rv
-    props['MEAN_CONTRAST'] = ccf_contrast
-    props['MEAN_FWHM'] = ccf_fwhm
     props['MEAN_CCF_RES'] = mean_ccf_coeffs
     props['MEAN_CCF_FIT'] = mean_ccf_fit
+
+    if np.isfinite(ccf_rv) :
+        props['MEAN_RV'] = ccf_rv
+        props['MEAN_CONTRAST'] = ccf_contrast
+        props['MEAN_FWHM'] = ccf_fwhm
+    else :
+        props['MEAN_RV'] = -9999
+        props['MEAN_CONTRAST'] = -9999
+        props['MEAN_FWHM'] = -9999
+
     if np.isfinite(rv_noise) :
         props['MEAN_RV_NOISE'] = rv_noise
     else :
@@ -1211,9 +1223,155 @@ def make_wave_keywords(header) :
     return header
 
 
+
+def apply_weights_to_ccf_mask(ccf_params, wave, fluxes, weights, median=True, remove_lines_with_nans=True, verbose=False) :
+    
+    sci_table = read_mask(ccf_params['MASK_FILE'], ccf_params['MASK_COLS'])
+    
+    if len(ccf_params['TELL_MASK_FILES']) :
+        masktables = [sci_table]
+        for m in ccf_params['TELL_MASK_FILES'] :
+            masktables.append(read_mask(m, ccf_params['MASK_COLS']))
+        masktable = vstack(masktables)
+    else :
+        masktable = sci_table
+
+    # --------------------------------------------------------------------------
+    # get mask centers, and weights
+    lines_d, lines_wlc, lines_wei = get_mask(masktable, ccf_params["MASK_WIDTH"], ccf_params["MASK_MIN_WEIGHT"])
+
+    lines_d = np.array(lines_d)
+    lines_wlc = np.array(lines_wlc)
+    lines_wei = np.array(lines_wei)
+
+    mask_centers = np.array([])
+    mask_weights = np.array([])
+    mask_d = np.array([])
+    mask_orders = np.array([])
+
+    speed_of_light_in_kps = constants.c / 1000.
+    edge_size = ccf_params["CCF_WIDTH"]
+    
+    for order in range(49) :
+        wl = wave[order]
+        flux = fluxes[order]
+        weight = weights[order]
+        
+        minwl = wl[0] * (1.0 + edge_size / speed_of_light_in_kps)
+        maxwl = wl[-1] * (1.0 - edge_size / speed_of_light_in_kps)
+        
+        order_lines = lines_wlc > minwl
+        order_lines &= lines_wlc < maxwl
+
+        order_lines_wlc = lines_wlc[order_lines]
+        order_lines_wei = lines_wei[order_lines]
+        order_lines_d = lines_d[order_lines]
+
+        wl_ini = order_lines_wlc * (1.0 - edge_size / speed_of_light_in_kps)
+        wl_end = order_lines_wlc * (1.0 + edge_size / speed_of_light_in_kps)
+
+        nlinesinorder = 0
+        
+        for i in range(len(order_lines_wlc)) :
+            inline = (wl >= wl_ini[i]) & (wl <= wl_end[i])
+            #nanmask = ~np.isnan(flux[inline])
+            #print(order, i, len(order_lines_wlc), wl_ini[i], wl_end[i], len(flux[inline]), len(flux[inline][nanmask]))
+            
+            if remove_lines_with_nans :
+                #if len(flux[inline]) >  edge_size / 2. :
+                if np.all(np.isfinite(flux[inline])):
+                    mask_centers = np.append(mask_centers, order_lines_wlc[i])
+                    mask_d = np.append(mask_d, order_lines_d[i])
+                    
+                    if median :
+                        mask_weights = np.append(mask_weights, order_lines_wei[i] * np.nanmedian(weight[inline]))
+                    else :
+                        mask_weights = np.append(mask_weights, order_lines_wei[i] * np.nanmean(weight[inline]))
+
+                    mask_orders = np.append(mask_orders, float(order))
+                    nlinesinorder += 1
+            else :
+                mask_centers = np.append(mask_centers, order_lines_wlc[i])
+                mask_d = np.append(mask_d, order_lines_d[i])
+
+                if ~np.isnan(np.nanmedian(weight[inline])) :
+                    if median :
+                        mask_weights = np.append(mask_weights, order_lines_wei[i] * np.nanmedian(weight[inline]))
+                    else :
+                        mask_weights = np.append(mask_weights, order_lines_wei[i] * np.nanmean(weight[inline]))
+                else :
+                    mask_weights = np.append(mask_weights, order_lines_wei[i])
+
+                mask_orders = np.append(mask_orders, float(order))
+                nlinesinorder += 1
+        if verbose :
+            print("Selected {0} lines in order {1} ".format(nlinesinorder,order))
+
+    #mask_weights /= np.max(mask_weights)
+
+    outmask = {}
+
+    outmask["centers"] = mask_centers
+    outmask["weights"] = mask_weights
+    outmask["widths"] = mask_d
+    outmask["orders"] = mask_orders
+
+    return outmask
+
+# =============================================================================
+# main routine -- version that inputs the spectrum in different format that
+# assumes a pre-processing.
+# =============================================================================
+def run_ccf_eder(ccf_params, wave, fluxes, header, ccfmask, rv_drifts={}, filename="", berv=0., targetrv=0.0, valid_orders=None, normalize_ccfs=True, fit_type=0, output=True, plot=False, verbose=False) :
+
+    if rv_drifts == {} :
+        rv_drifts["WFPDRIFT"] ='None'
+        rv_drifts["RV_WAVFP"] = 'None'
+        rv_drifts["RV_SIMFP"] = 'None'
+        rv_drifts["RV_DRIFT"] = 0.
+
+    warnings.simplefilter(action='ignore', category=FutureWarning)
+    warnings.simplefilter(action='ignore', category=RuntimeWarning)
+
+    blaze = np.ones_like(fluxes)
+    
+    # --------------------------------------------------------------------------
+    # Photon noise uncertainty
+    # --------------------------------------------------------------------------
+    dkwargs = dict(spe=fluxes, wave=wave, sigdet=ccf_params["NOISE_SIGDET"],
+                   size=ccf_params["NOISE_SIZE"], threshold=ccf_params["NOISE_THRES"])
+
+    # run DeltaVrms2D
+    dvrmsref, wmeanref = delta_v_rms_2d(**dkwargs)
+    if verbose :
+        print('Estimated RV uncertainty on spectrum is {0:.3f}'.format(wmeanref))
+
+    # --------------------------------------------------------------------------
+    # Calculate the CCF
+    # --------------------------------------------------------------------------
+    if verbose :
+        print('\nRunning CCF calculation')
+    props = ccf_calculation(ccf_params, wave, fluxes, blaze, targetrv, ccfmask["centers"],
+                            ccfmask["weights"], berv, fit_type, mask_orders=ccfmask["orders"])
+
+    # --------------------------------------------------------------------------
+    # Calculate the mean CCF
+    # --------------------------------------------------------------------------
+    if verbose :
+        print('\nRunning Mean CCF')
+    props = mean_ccf(ccf_params, props, targetrv, fit_type, valid_orders=valid_orders, normalize_ccfs=normalize_ccfs, plot=plot)
+
+    # --------------------------------------------------------------------------
+    # Save file
+    # --------------------------------------------------------------------------
+    if "WAVEORDN" not in header.keys() :
+        header = make_wave_keywords(header)
+    wheader = header
+
+    props = write_file(props, filename, ccf_params['MASK_FILE'], header, wheader, rv_drifts, save=output, verbose=verbose)
+
+    return props
+
 # ==============================================================================
 # End of code
 # ==============================================================================
-
-
-

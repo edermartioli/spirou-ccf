@@ -48,6 +48,7 @@ def get_object_rv(ccf_files,
                   showplots = False,
                   saveplots = False,
                   do_blacklist = False,
+                  save_ccf_fitsfile = False,
                   detailed_output = False,
                   verbose = False
                   ):
@@ -78,6 +79,9 @@ def get_object_rv(ccf_files,
     #if method == 'all':
     #    method = 'gaussian_template_bisector_20_80'
 
+    if detailed_output:
+        dict_ccf = dict()
+    
     object, mask, sanit, drs_version = collection_key.split("__")
 
     outdir = os.path.dirname(ccf_files[0])
@@ -167,7 +171,16 @@ def get_object_rv(ccf_files,
 
     if doplot :
         plot_residual_ccf(ccf_files, ccf_RV, med_corr_ccf, corr_ccf, batch_name, saveplots=saveplots, showplots=showplots)
+
+    if save_ccf_fitsfile :
+        output_ccf_fitsfile = '{0}.fits'.format(batch_name)
+        if detailed_output:
+            dict_ccf['CCF_FITS_FILE'] = output_ccf_fitsfile
+    else :
+        output_ccf_fitsfile = ""
         
+    ccf_fits_hdu = save_ccf_to_fits(ccf_files, ccf_RV, med_corr_ccf, corr_ccf, output=output_ccf_fitsfile, plot=doplot)
+
     if doplot :
         plot_residual_timeseries(tbl, batch_name, saveplots=saveplots, showplots=showplots)
 
@@ -192,14 +205,28 @@ def get_object_rv(ccf_files,
         bisector_output = '{0}_bisector.rdb'.format(batch_name)
         save_bisector_time_series_in_rdb_format(tbl, bisector_output)
 
-    if detailed_output == False:
-        return tbl
-    else:
-        dict_ccf = dict()
+    if detailed_output :
         dict_ccf['TABLE_CCF'] = tbl
+            
+        dict_ccf['CCF_RV'] = ccf_RV
         dict_ccf['MEAN_CCF'] = mean_ccf
+        dict_ccf['CCF_FILES'] = ccf_files
+        dict_ccf['CORR_CCF'] = corr_ccf
+        dict_ccf['MED_CORR_CCF'] = med_corr_ccf
+        dict_ccf['CCF_MAD'] = ccf_fits_hdu["DATA"].data["CCFERR"]
+
+        if correct_rv_drift and 'RV_DRIFT' in tbl.keys():
+            dict_ccf['RV'] = tbl['RV'] - tbl['RV_DRIFT']
+        else :
+            dict_ccf['RV'] = tbl['RV']
+
+        dict_ccf['RVERR'] = tbl['ERROR_RV']
+        dict_ccf['BJD'] = tbl['BJD'] + (tbl['MJDEND'] - tbl['MJDATE']) / 2.
         
         return dict_ccf
+    else:
+        return tbl
+
 
 
 def set_output_table(ccf_files, keywords) :
@@ -483,67 +510,6 @@ def build_ccf_cube(ccf_files,
 
     return ccf_cube, ccf_tbl, ccf_RV
 
-'''
-def build_ccf_cube(ccf_files, batch_name, exclude_orders=[-1], save_ccf_cube=False, verbose=False) :
-
-    npy_file = '{0}_ccf_cube.npy'.format(batch_name)
-    
-    if not os.path.isfile(npy_file):
-        if verbose :
-            print('we load all CCFs into one big cube')
-        for i in (range(len(ccf_files))):
-            # we loop through all files
-            ccf_tbl = fits.getdata(ccf_files[i])
-
-            ccf_RV = ccf_tbl['RV'] # ccf velocity offset, not to be confused with measured RV
-
-            # We must absolutely have always the same RV grid for the CCF. We must check that consecutive ccf_RV are identical
-            if i != 0:
-                if np.sum(ccf_RV != ccf_RV_previous):
-                    if verbose :
-                        print('We have a big problem! The RV vector of CCF files are not all the same')
-                        print('Files {0} and {1} have different RV vectors.'.format(ccf_files[i-1],ccf_files[i]))
-                    sys.exit()
-            ccf_RV_previous = np.array(ccf_RV)
-
-            if verbose :
-                print('V[min/max] {0:.1f} / {1:.1f} km/s, file {2}'.format(np.min(ccf_RV),np.max(ccf_RV),ccf_files[i]))
-            # if this is the first file, we create a cube that contains all CCFs for all orders for all files
-            if i==0:
-                ccf_cube = np.zeros([49,len(ccf_tbl),len(ccf_files)])+np.nan
-
-            # we input the CCFs in the CCF cube
-            for j in range(49):
-                tmp =  ccf_tbl['ORDER'+str(j).zfill(2)]
-                #plt.plot(ccf_RV, tmp)
-                if False not in np.isfinite(tmp):
-                    cont = np.polyval(np.polyfit(ccf_RV, tmp, 1), ccf_RV)
-                    #plt.plot(ccf_RV, cont, '--')
-                    # we normalize to a continuum of 1
-                    tmp /= cont
-                    ccf_cube[j,:,i] = tmp
-            #plt.show()
-            
-        if save_ccf_cube :
-            if verbose :
-                print('We save {0}, this will speed things up next time you run this code'.format(npy_file))
-            np.save(npy_file,ccf_cube)
-
-    else:
-        if verbose :
-            print('We load {0}, this is speedier'.format(npy_file))
-        ccf_cube = np.load(npy_file)
-        # we need to load the first file just to get the velocity grid
-        ccf_tbl = fits.getdata(ccf_files[0])
-        ccf_RV = ccf_tbl['RV']
-
-    for j in range(49):
-        # if we need to exlude orders, we do it here.
-        if j in exclude_orders:
-            ccf_cube[j,:,:] = np.nan
-
-    return ccf_cube, ccf_tbl, ccf_RV
-'''
 
 def exclude_orders_full_of_nans(exclude_orders, med_ccf, verbose=False) :
     
@@ -695,99 +661,7 @@ def measure_ccf_weights(
             weights /= np.nansum(weights)
 
     return weights
-"""
-def measure_ccf_weights(ccf_cube, ccf_files, med_ccf, ccf_RV, id_min, velocity_window, exclude_orders=[-1], batch_name='std_output', weight_table='', weight_type='', object='', mask='', save_weight_table=False, doplot=False, saveplot=False, showplot=False, verbose=False) :
-    
-    # find valid pixels to measure CCF properties
-    g = np.abs(ccf_RV - ccf_RV[id_min]) < velocity_window
 
-    with warnings.catch_warnings(record=True) as _:
-        # some slices in the sum are NaNs, that's OK
-        ccf_Q = np.nansum(np.gradient(med_ccf[:,g],axis=1)**2, axis = 1)
-
-    ccf_Q[ccf_Q == 0] = np.nan
-    ccf_depth = 1-med_ccf[:,id_min]
-
-    if weight_type == 'DVRMS_CC':
-        weights = 1/np.nanmedian(DVRMS_CC,axis=1)**2
-        weights[np.isfinite(weights) == False] = 0
-
-        for iord in range(49):
-            if iord in exclude_orders:
-                weights[iord] = 0
-
-        weights = weights/np.sum(weights)
-    else:
-        if weight_table == "" or (not os.path.isfile(weight_table)):
-            # now we find the RMS of the Nth spectrum relative to the median
-            rms = np.zeros([len(ccf_files),49])
-            for i in range(len(ccf_files)):
-                with warnings.catch_warnings(record=True) as _:
-                # some slices in the median are NaNs, that's OK
-                    rms[i,:] = np.nanmedian(np.abs(ccf_cube[:,:,i]-med_ccf),axis=1)
-                rms[i, :] /= np.nanmedian(rms[i, :])
-
-            rms[:,exclude_orders] = np.nan
-
-            if doplot:
-                vmin = np.nanpercentile(rms,3)
-                vmax = np.nanpercentile(rms,97)
-                plt.imshow(rms,aspect = 'auto',vmin = vmin, vmax = vmax)
-                plt.xlabel('Nth order')
-                plt.ylabel('Nth frame')
-                plt.title('RMS of CCF relative to median')
-                if showplot :
-                    plt.show()
-
-            with warnings.catch_warnings(record=True) as _:
-                # some slices in the sum are NaNs, that's OK
-                # this is the typical noise from the ccf dispersion
-                ccf_rms = np.nanmedian(rms,axis=0)
-
-            # set to NaN values that are invalid
-            ccf_rms[ccf_rms == 0] = np.nan
-
-
-            # assuming that the CCF has the same depth everywhere, this is the correct weighting of orders
-            weights = ccf_Q/ccf_rms**2
-            weights[weights == 0] = np.nan
-            weights[exclude_orders] = np.nan
-            # we normalize the sum of the weights to one
-            weights /= np.nansum(weights)
-
-            if doplot:
-                fig,ax = plt.subplots(nrows = 3, ncols=1,sharex = True)
-                ax[0].plot(weights,'go')
-                ax[0].set(title = '{0}, mask {1}'.format(object, mask),xlabel = 'Nth order', ylabel = 'Relative order weight')
-
-                ax[1].plot(ccf_Q,'go')
-                ax[1].set(xlabel = 'Nth order', ylabel = 'ccf Q')
-
-                ax[2].plot(1/ccf_rms**2,'go')
-                ax[2].set(xlabel = 'Nth order', ylabel = '1/$\sigma_{CCF}^2$')
-                plt.tight_layout()
-                if saveplot :
-                    plt.savefig('{0}_weights.pdf'.format(batch_name))
-                if showplot :
-                    plt.show()
-
-            tbl_weights = Table()
-            tbl_weights['order'] = np.arange(49)
-            tbl_weights['weights'] = weights
-            tbl_weights['ccf_depth'] = ccf_depth
-            tbl_weights['ccf_Q'] = ccf_Q
-            if save_weight_table :
-                tbl_weights.write('{0}_weights.csv'.format(batch_name),overwrite = True)
-
-        else:
-            if verbose :
-                print('You provided a weight file, we load it and apply weights accordingly')
-            tbl_weights = Table.read(weight_table)
-            weights = np.array(tbl_weights['weights'],dtype = float)
-            weights /= np.nansum(weights)
-
-    return weights
-"""
 
 def apply_weights_to_ccf(ccf_cube, weights) :
     
@@ -1150,13 +1024,64 @@ def plot_residual_ccf(ccf_files, ccf_RV, med_corr_ccf, corr_ccf, batch_name, sav
     #vmax = np.nanpercentile(residuals,99)
     vmin = np.nanmin(residuals)
     vmax = np.nanmax(residuals)
-    plt.imshow(residuals,aspect = 'auto',vmin = vmin,vmax = vmax,extent = [np.min(ccf_RV),np.max(ccf_RV),0,len(ccf_files)])
+    plt.imshow(residuals,aspect = 'auto',vmin = vmin, vmax = vmax,extent = [np.min(ccf_RV),np.max(ccf_RV),0,len(ccf_files)])
     plt.ylabel('Nth observation')
     plt.xlabel('Velocity [km/s]')
     plt.title('Residual CCF')
     if showplots :
         plt.show()
 
+
+def save_ccf_to_fits(ccf_files, ccf_RV, med_corr_ccf, corr_ccf, output="", plot=False) :
+    '''
+        Function to save CCF data to FITS file
+        '''
+    
+    residuals = []
+    
+    for i in range(len(ccf_files)):
+        residual = corr_ccf[:,i] - med_corr_ccf
+        if plot :
+            color = [i/len(ccf_files),1-i/len(ccf_files),1-i/len(ccf_files)]
+            plt.plot(ccf_RV,corr_ccf[:,i],color = color, alpha = 0.2)
+        residuals.append(residual)
+    
+    residuals = np.array(residuals, dtype=float)
+
+    ccf_err = np.nanmedian(np.abs(residuals), axis=0) / 0.67449
+
+    if plot :
+        plt.errorbar(ccf_RV, med_corr_ccf, yerr=ccf_err, fmt='o')
+        plt.xlabel("Velocity [km/s]")
+        plt.ylabel("CCF depth")
+        plt.show()
+
+    # create header unit
+    header = fits.Header()
+    header.set('ORIGIN', "ccf2rv")
+    
+    # create primary hdu
+    primary_hdu = fits.PrimaryHDU(header=header)
+    
+    # set extension hdu to save data
+    ext_data = np.asarray(ccf_RV, dtype='float32')
+    
+    cols = []
+    cols.append(fits.Column(name='RV', format='E', array=ccf_RV))
+    cols.append(fits.Column(name='CCF', format='E', array=med_corr_ccf))
+    cols.append(fits.Column(name='CCFERR', format='E', array=ccf_err))
+
+    # set up hdu for all data extensions
+    hdu = fits.BinTableHDU.from_columns(cols,name='DATA')
+    
+    # set up hdulist with primary + data HDUs
+    fits_format = fits.HDUList([primary_hdu, hdu])
+
+    # write output fits file
+    if output != "" :
+        fits_format.writeto(output, overwrite=True)
+
+    return fits_format
 
 
 def plot_residual_timeseries(tbl, batch_name, saveplots=False, showplots=False) :
@@ -1270,6 +1195,7 @@ def save_rv_time_series_in_rdb_format(tbl, output, time_in_rjd=True, rv_in_mps=F
     bjd = tbl['BJD'] + (tbl['MJDEND'] - tbl['MJDATE']) / 2.
     
     save_rv_time_series(output, bjd, rv, rverr, time_in_rjd=time_in_rjd, rv_in_mps=rv_in_mps)
+
 
 
 def save_rv_time_series(output, bjd, rv, rverr, time_in_rjd=True, rv_in_mps=False) :

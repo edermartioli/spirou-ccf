@@ -1307,6 +1307,60 @@ def generate_polar_sets(file_list, verbose=False) :
     return polar_sets
 
 
+def stack_sequence(exp, output_filename, efits=False) :
+
+    hdu_base = fits.open(exp[0])
+    header0 = hdu_base[0].header
+    header1 = hdu_base[1].header
+            
+    tot_exptime = float(header0['EXPTIME'])
+    meanbjd = float(header1['BJD'])
+    meanberv = float(header1['BERV'])
+    totsnr = float(header0['SPEMSNR'])
+            
+    for i in range(1,len(exp)) :
+    # Load SPIRou reduced *t.fits file
+        spc = fits.open(exp[0])
+        hdr0 = spc[0].header
+        hdr1 = spc[1].header
+            
+        # calcualte total exposure time
+        tot_exptime += float(hdr0['EXPTIME'])
+
+        meanbjd += float(hdr1['BJD'])
+        meanberv += float(hdr1['BERV'])
+        totsnr += float(hdr0['SPEMSNR'])
+                
+        for order in range(49) :
+            hdu_base["FluxAB"].data[order] += spc["FluxAB"].data[order]
+            if efits :
+                hdu_base["FluxA"].data[order] += spc["FluxA"].data[order]
+                hdu_base["FluxB"].data[order] += spc["FluxB"].data[order]
+                hdu_base["FluxC"].data[order] += spc["FluxC"].data[order]
+
+        
+    meanbjd /= len(exp)
+    meanberv /= len(exp)
+    totsnr /= np.sqrt(float(len(exp)))
+            
+    #update header
+    hdu_base[0].header['EXPTIME'] = tot_exptime
+    hdu_base[1].header['BJD'] = meanbjd
+    hdu_base[1].header['BERV'] = meanberv
+    hdu_base[0].header['SPEMSNR'] = totsnr
+
+    hdu_base.writeto(output_filename, overwrite=True)
+
+
+def check_efiles(exp) :
+    eexp = []
+    for i in range(len(exp)) :
+        efile = str(exp[i]).replace("t.fits","e.fits")
+        if os.path.exists(efile) :
+            eexp.append(efile)
+    return eexp
+
+
 def stack_polar_sequence(polar_sets, correct_drift=False, overwrite=True) :
 
     output_file_list = []
@@ -1315,48 +1369,18 @@ def stack_polar_sequence(polar_sets, correct_drift=False, overwrite=True) :
     
         output_filename = str(key).replace("t.fits","stack_t.fits")
         exp = polar_sets[key]
-
+    
         if not os.path.exists(output_filename) or overwrite :
-        
-            hdu_base = fits.open(exp[0])
-            header0 = hdu_base[0].header
-            header1 = hdu_base[1].header
-            
-            tot_exptime = float(header0['EXPTIME'])
-            meanbjd = float(header1['BJD'])
-            meanberv = float(header1['BERV'])
-            totsnr = float(header0['SPEMSNR'])
-            
-            for i in range(1,len(exp)) :
-                # Load SPIRou reduced *t.fits file
-                spc = fits.open(exp[0])
-                hdr0 = spc[0].header
-                hdr1 = spc[1].header
-            
-                # calcualte total exposure time
-                tot_exptime += float(hdr0['EXPTIME'])
-
-                meanbjd += float(hdr1['BJD'])
-                meanberv += float(hdr1['BERV'])
-                totsnr += float(hdr0['SPEMSNR'])
-                
-                for order in range(49) :
-                    hdu_base['FluxAB'].data[order] += spc['FluxAB'].data[order]
-        
-            meanbjd /= len(exp)
-            meanberv /= len(exp)
-            totsnr /= np.sqrt(float(len(exp)))
-            
-            #update header
-            hdu_base[0].header['EXPTIME'] = tot_exptime
-            hdu_base[1].header['BJD'] = meanbjd
-            hdu_base[1].header['BERV'] = meanberv
-            hdu_base[0].header['SPEMSNR'] = totsnr
-
-            hdu_base.writeto(output_filename, overwrite=True)
+            stack_sequence(exp, output_filename)
 
         output_file_list.append(output_filename)
-                
+
+        output_efilename = str(key).replace("t.fits","stack_e.fits")
+        if not os.path.exists(output_efilename) or overwrite :
+            e_exp = check_efiles(exp)
+            if len(e_exp) > 0 :
+                stack_sequence(e_exp, output_efilename, efits=True)
+
         if correct_drift :
             
             output_fp_filename = output_filename.replace("t.fits","o_pp_e2dsff_C_ccf_smart_fp_mask_C.fits")

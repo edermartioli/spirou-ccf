@@ -380,6 +380,7 @@ def process_ccfs(file_list, mask_file, source_rv=0., correct_rv_drift=False, rv_
     loc["bjd"] = bjd
     loc["rv"] = rv
     loc["rverr"] = rverr
+    loc["snr"] = snr
     return loc
 
 
@@ -433,7 +434,7 @@ def calculate_optimum_ccf_mask(template_spectrum, ref_sci_ccf, obj_temp, vsini=2
     return catalog
 
 
-def run_ccf_analysis(ccf_files, mask_file, obj="", drs_version="", sanit=False, correct_rv_drift=False, plot=False, verbose=False) :
+def run_ccf_analysis(ccf_files, mask_file, obj="", drs_version="", snr_min=20., dvmax_per_order=3.0, sanit=False, correct_rv_drift=False, save_ccf_fitsfile=False, plot=False, verbose=False) :
     ##########################
     # Run CCF analysis to get object rvs using an optimized algorithm
     mask_basename = os.path.basename(mask_file)
@@ -445,17 +446,18 @@ def run_ccf_analysis(ccf_files, mask_file, obj="", drs_version="", sanit=False, 
     
     # exclude orders with strong telluric absorption
     #exclude_orders = [-1]  # to include all orders
-    exclude_orders = [11,12,22,23,24,25,26,27,37,38,39,40,47,48]
+    #exclude_orders = [11,12,22,23,24,25,26,27,37,38,39,40,47,48]
+    exclude_orders = [0,1,10,11,12,13,14,21,22,23,24,25,26,27,37,38,39,40,47,48]
 
-    # Set minimum SNR.
-    #snr_min = np.nanmedian(snr) - 3. * np.nanstd(snr)
-    #if snr_min < 1 : snr_min = 1.
-    snr_min=20.
-    
     # set bandpass
     bandpass = "YJHK"
-    
-    tbl = ccf2rv.get_object_rv(ccf_files, collection_key=collection_key, method="all", exclude_orders=exclude_orders, snr_min=snr_min, bandpass=bandpass, save_rdb_timeseries=True, correct_rv_drift=correct_rv_drift, save_csv_table_of_results=True, save_ccf_cube=False, save_weight_table=False, doplot=plot, showplots=plot, saveplots=plot, verbose=verbose)
+
+    # form a unique batch name with mask, object and method
+    batch_name = '{0}/{1}__{2}'.format(outdir, collection_key, bandpass)
+
+    ccf = ccf2rv.get_object_rv(ccf_files, collection_key=collection_key, method="all", exclude_orders=exclude_orders, snr_min=snr_min, bandpass=bandpass, dvmax_per_order=dvmax_per_order, save_rdb_timeseries=True, correct_rv_drift=correct_rv_drift, save_csv_table_of_results=True, save_ccf_cube=False, save_weight_table=False, doplot=plot, showplots=plot, save_ccf_fitsfile=save_ccf_fitsfile, saveplots=plot, detailed_output=True, verbose=verbose)
+
+    return ccf
     ##########################
 
 
@@ -494,7 +496,7 @@ if options.verbose:
 inputdata = sorted(glob.glob(options.input))
 
 if options.stack_polar :
-    polar_sets = spiroulib.generate_polar_sets(inputdata, verbose=False)
+    polar_sets = spiroulib.generate_polar_sets(inputdata, verbose=options.verbose)
 
     inputdata = spiroulib.stack_polar_sequence(polar_sets, correct_drift=options.correct_drift, overwrite=options.overwrite)
 
@@ -523,6 +525,8 @@ for obj in collections['object'] :
 
     if options.ref_spectrum != "" :
         refexp = options.ref_spectrum
+        ref_sci_ccf = run_sci_ccf(refexp, mask_file, source_rv=options.source_rv, save_output=False, plot=options.plot)
+
         try :
             if options.verbose :
                 print("Trying to run CCF on reference exposure:{}".format(os.path.basename(refexp)))
@@ -540,7 +544,8 @@ for obj in collections['object'] :
 
         # loop over the list of input files sorted by SNR, and pick the first possible ref file
         for i in range(len(file_list_sorted_by_snr)) :
-            try :
+            #try :
+            if 0 == 0 :
                 #set reference exposure as the one with maximum SNR
                 refexp = file_list_sorted_by_snr[i]
 
@@ -553,9 +558,9 @@ for obj in collections['object'] :
                 ref_not_processed = False
                 # get out of the loop when succeed to calculate CCF
                 break
-            except :
-                print("WARNING: could not select file {} as reference, skipping ...".format(refexp))
-                continue
+            #except :
+            #    print("WARNING: could not select file {} as reference, skipping ...".format(refexp))
+            #    continue
 
     if ref_not_processed :
         print("ERROR: could not select any file as reference, exiting ...")
@@ -590,8 +595,16 @@ for obj in collections['object'] :
     pccfs = process_ccfs(file_list, mask_file, source_rv=rv_sys, correct_rv_drift=correct_rv_drift, rv_file=rv_file, overwrite=options.overwrite, verbose=options.verbose)
     ##########################
 
+    ########################
+    dvmax_per_order = 3*np.nanstd(pccfs["rv"])
+    snr_min = np.nanmedian(pccfs["snr"]) - 5*np.nanstd(pccfs["snr"])
+    if snr_min < 20. : snr_min = 20
+
+    if options.verbose :
+        print("Running CCF analysis with dvmax_per_order={0:.3f} km/s  snr_min={1:.0f}",dvmax_per_order, snr_min)
     # Run CCF analysis on CCF data calculated previously to obtain optimal RVs
-    run_ccf_analysis(pccfs["sci_ccf_files"], mask_file, obj=obj, drs_version=fits.getheader(refexp)['VERSION'], correct_rv_drift=correct_rv_drift, plot=options.plot, verbose=options.verbose)
+    ccf_results = run_ccf_analysis(pccfs["sci_ccf_files"], mask_file, obj=obj, drs_version=fits.getheader(refexp)['VERSION'], snr_min=snr_min, dvmax_per_order=dvmax_per_order, correct_rv_drift=correct_rv_drift, plot=options.plot, verbose=options.verbose)
+    #######################
 
     if options.run_template :
         ##########################
