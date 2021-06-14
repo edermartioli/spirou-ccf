@@ -1,10 +1,10 @@
 # spirou-ccf
-Wrapper to perform CCF measurements and CCF analysis to obtain radial velocities from SPIRou data. 
+A tool-kit to perform optimal CCF measurements and a CCF analysis to obtain precise radial velocities from SPIRou data. 
 
 To start using this tool one needs a set of SPIRou spectra in `*t.fits` format saved in the same directory.  Then run the following example:
 
 ```
-python ~/spirou-ccf/spirou_ccf_pipeline.py --input=*t.fits -vds
+python ~/spirou-ccf/spirou_ccf_pipeline.py --input=*t.fits -pvs
 ```
 
 The following input options are available:
@@ -13,26 +13,23 @@ The following input options are available:
   (e.g., --pattern=*t.fits)
 --ccf_mask to input a CCF mask (optional, if not provided it will select the best matching mask from a repository)
   (e.g., --ccf_mask=my_favorite_mask.mas)
---ref_spectrum to input a reference spectrum (optional, if not provided it will select the one with highest SNR)
-  (e.g., --ref_spectrum=1234567t.fits)
---source_rv to input the systemic velocity in km/s (if not provided it will measure the RV in the reference spectrum)
+--source_rv to input the systemic velocity in km/s (if not provided it will measure the RV in the template spectrum)
   (e.g., --source_rv=10.)
--s for stacking each polar sequence before running CCF analyis
--t for generating template spectrum, wihch is saved to `OBJECT_template.fits`
--d for applying instrumental RV drift correction from simultaneous FP exposure
--o for overlapping existing data
+--output_template file name for output template (optional, if not provided the template will not be saved)
+  (e.g., --output_template='object_name.fits')
+--ccf_width half width to calculate CCF in km/s (if not provided it will measure the width in the template spectrum)
+  (e.g., --ccf_width=100.)
+--vel_sampling provide a constant sampling in velocity space in km/s (if not provided it will assume a default value of 1.8 km/s)
+  (e.g., --vel_sampling=2.0)
+--epoch_max_dt provide a maximum time difference to stack spectra in days (if not provided it will assume a default value of 0.5 d)
+  (e.g., --epoch_max_dt=0.2)
+-e for using *e.fits data saved in the same directory (this is useful when calculating telluric CCFs)
+-s for stacking the spectrum sequences (polar or per epoch)
+-l for stacking a polar sequence rather than a per-epoch sequence
+-t to run CCF analysis on telluric spectra. This takes more time to run and do not affect the science CCF calculations.
+-d for calculating the instrumental RV drift correction obtained from a drift database (currently not fully implemented)
 -p for plotting
 -v for verbose
 ```
 
-NOTE: if one wants the radial velocities corrected by the instrumental drifts measured from the Fabry-Perot "fiber-C" channel, it also requires either the `*o_pp_e2dsff_C_ccf_smart_fp_mask_C.fits` or `e.fits` files saved in the same directory. 
-
 Once the processing is done, one can find the `*_rv.rdb` products, which give the radial velocity time series for several methods used, and the `*_bisector.rdb` file, which gives the bisector time series. One can also find the CCF data for each exposure saved with the following file name structure, `CCFTABLE_FILENAME_MASK-NAME.fits`, as well as the `.csv` table with extended data provided by the CCF analysis. 
-
-If one wants to run the full processing for a given target at LAM server, there is an example script called `run_ccf_at_lam.py` that can be used as reference. Here's an example on how to run it as a background job (will continue if connection is closed):
-
-```
-nohup python run_ccf_at_lam.py --workdir="/home/external/emartioli/Data/" > log_of_reduction.out 2>&1 &
-```
-
-Note that it requires one to change the internal paths to make this routine useful for a different user location, and also the target list is currenlty provided either by an input list of target names, or if nothing is provided it uses a list defined inside the file, which must be changed. 
