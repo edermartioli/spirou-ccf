@@ -39,13 +39,13 @@ import matplotlib.pyplot as plt
 import ccf2rv
 import drift_lib
 
-spirou_ccf_dir = os.path.dirname(__file__) + '/'
-mask_repository = spirou_ccf_dir + 'ccf_masks/apero_masks/'
-telluric_mask_repository = spirou_ccf_dir + 'ccf_masks/telluric/'
-fp_mask = mask_repository + 'fp.mas'
-h2o_mask = telluric_mask_repository + 'trans_h2o_abso_ccf.mas'
-tel_mask = telluric_mask_repository + 'trans_others_abso_ccf.mas'
-drift_repository = spirou_ccf_dir + 'drifts/'
+spirou_ccf_dir = os.path.dirname(__file__)
+mask_repository = os.path.join(spirou_ccf_dir, 'ccf_masks/apero_masks/')
+telluric_mask_repository = os.path.join(spirou_ccf_dir,'ccf_masks/telluric/')
+fp_mask = os.path.join(mask_repository,'fp.mas')
+h2o_mask = os.path.join(telluric_mask_repository,'trans_h2o_abso_ccf.mas')
+tel_mask = os.path.join(telluric_mask_repository,'trans_others_abso_ccf.mas')
+drift_repository = os.path.join(spirou_ccf_dir,'drifts/')
 
 
 def run_spirou_ccf(inputdata, ccf_mask, drifts, telluric_rv=False, use_efits=False, normalize_ccfs=True, save_output=True, source_rv=0., ccf_width=100, vel_sampling=1.8, run_analysis=True, output_template="", verbose=False, plot=False) :
@@ -106,7 +106,8 @@ def run_spirou_ccf(inputdata, ccf_mask, drifts, telluric_rv=False, use_efits=Fal
     if verbose :
         print("Template RV={0:.5f} km/s CCF width={1:.0f} km/s".format(ccf_params["SOURCE_RV"], ccf_params["CCF_WIDTH"]))
     if plot :
-        plt.plot(template_ccf['RV_CCF'], template_ccf['MEAN_CCF'], "-", lw=2, label="template")
+        templ_legend = "Template of {}".format(template_ccf["header"]["OBJECT"].replace(" ",""))
+        plt.plot(template_ccf['RV_CCF'], template_ccf['MEAN_CCF'], "-", color='green', lw=2, label=templ_legend, zorder=2)
 
     calib_rv, drift_rv,  = [], []
     tell_rv, h2o_rv = [], []
@@ -164,8 +165,12 @@ def run_spirou_ccf(inputdata, ccf_mask, drifts, telluric_rv=False, use_efits=Fal
             mean_h2o_fwhm.append(h2o_ccf["header"]['CCFMFWHM'])
             
             if plot :
-                plt.plot(tell_ccf['RV_CCF'],tell_ccf['MEAN_CCF'], ":", label="tellurics")
-                plt.plot(h2o_ccf['RV_CCF'],h2o_ccf['MEAN_CCF'], ":", label="H2O")
+                if i == spectra['nspectra'] - 1 :
+                    tellegend, h20legend = "Other tellurics", r"H$_2$O"
+                else :
+                    tellegend, h20legend = None, None
+                plt.plot(tell_ccf['RV_CCF'],tell_ccf['MEAN_CCF'], "--", color='#d62728', label=tellegend)
+                plt.plot(h2o_ccf['RV_CCF'],h2o_ccf['MEAN_CCF'], ":", color='#1f77b4', label=h20legend)
         else :
             tell_rv.append(np.nan)
             h2o_rv.append(np.nan)
@@ -181,8 +186,12 @@ def run_spirou_ccf(inputdata, ccf_mask, drifts, telluric_rv=False, use_efits=Fal
         #esci_ccf = ccf_lib.run_ccf_eder(ccf_params, espectra["wl_sf"], efluxes, eheader, ccfmask, rv_drifts=rv_drifts, filename=espectra['filenames'][i], targetrv=source_rv, valid_orders=order_subset_for_mean_ccf, normalize_ccfs=normalize_ccfs, output=save_output, plot=False, verbose=False)
 
         if plot :
+            if i == spectra['nspectra'] - 1 :
+                scilegend = "{}".format(sci_ccf["header"]["OBJECT"].replace(" ",""))
+            else :
+                scilegend = None
             #plt.plot(esci_ccf['RV_CCF'],sci_ccf['MEAN_CCF']-esci_ccf['MEAN_CCF'], "--", label="spectrum")
-            plt.plot(sci_ccf['RV_CCF'],sci_ccf['MEAN_CCF'], "-", label="science")
+            plt.plot(sci_ccf['RV_CCF'], sci_ccf['MEAN_CCF'], "-", color='#2ca02c', alpha=0.5, label=scilegend, zorder=1)
 
     mean_fwhm = np.array(mean_fwhm)
     
@@ -193,29 +202,30 @@ def run_spirou_ccf(inputdata, ccf_mask, drifts, telluric_rv=False, use_efits=Fal
     if plot :
         plt.xlabel('Velocity [km/s]')
         plt.ylabel('CCF')
-        #plt.legend()
+        plt.legend()
         plt.show()
 
         calib_rv, median_rv = np.array(calib_rv), np.nanmedian(calib_rv)
-        plt.plot(spectra["bjds"], (calib_rv  - median_rv), 'o', label="Sci RV = {0:.4f} km/s".format(median_rv))
-        plt.plot(spectra["bjds"], (mean_fwhm  - np.nanmean(mean_fwhm)), '--', label="Sci FWHM = {0:.4f} km/s".format(np.nanmean(mean_fwhm)))
+        plt.plot(spectra["bjds"], (calib_rv  - median_rv), 'o', color='#2ca02c', label="Sci RV = {0:.4f} km/s".format(median_rv))
+        plt.plot(spectra["bjds"], (mean_fwhm  - np.nanmean(mean_fwhm)), '--', color='#2ca02c', label="Sci FWHM = {0:.4f} km/s".format(np.nanmean(mean_fwhm)))
         
         drift_rv = np.array(drift_rv)
+        
         mean_drift, sigma_drift = np.nanmedian(drift_rv), np.nanstd(drift_rv)
-        plt.plot(spectra["bjds"], drift_rv, '.', label="Inst. FP drift = {0:.4f}+/-{1:.4f} km/s".format(mean_drift,sigma_drift))
+        plt.plot(spectra["bjds"], drift_rv, '.', color='#ff7f0e', label="Inst. FP drift = {0:.4f}+/-{1:.4f} km/s".format(mean_drift,sigma_drift))
 
         if telluric_rv :
             tell_rv = np.array(tell_rv)
             zero_telldrift, sigma_telldrift = np.nanmedian(tell_rv), np.nanstd(tell_rv)
             h2o_rv = np.array(h2o_rv)
             zero_h2odrift, sigma_h2odrift = np.nanmedian(h2o_rv), np.nanstd(h2o_rv)
-            plt.plot(spectra["bjds"], (tell_rv  - zero_telldrift), '-', label="Telluric drift = {0:.4f}+/-{1:.4f} km/s".format(zero_telldrift, sigma_telldrift))
-            plt.plot(spectra["bjds"], (h2o_rv  - zero_h2odrift), '-', label="H2O drift = {0:.4f}+/-{1:.4f} km/s".format(zero_h2odrift, sigma_h2odrift))
-            plt.plot(spectra["bjds"], (mean_tell_fwhm  - np.nanmean(mean_tell_fwhm)), ':', label="Telluric FWHM = {0:.4f} km/s".format(np.nanmean(mean_tell_fwhm)))
-            plt.plot(spectra["bjds"], (mean_h2o_fwhm  - np.nanmean(mean_h2o_fwhm)), ':', label="H2O FWHM = {0:.4f} km/s".format(np.nanmean(mean_h2o_fwhm)))
+            plt.plot(spectra["bjds"], (tell_rv  - zero_telldrift), '-', color='#d62728', label="Telluric drift = {0:.4f}+/-{1:.4f} km/s".format(zero_telldrift, sigma_telldrift))
+            plt.plot(spectra["bjds"], (h2o_rv  - zero_h2odrift), '-', color='#1f77b4', label="H2O drift = {0:.4f}+/-{1:.4f} km/s".format(zero_h2odrift, sigma_h2odrift))
+            plt.plot(spectra["bjds"], (mean_tell_fwhm  - np.nanmean(mean_tell_fwhm)), ':', color='#d62728', label="Telluric FWHM = {0:.4f} km/s".format(np.nanmean(mean_tell_fwhm)))
+            plt.plot(spectra["bjds"], (mean_h2o_fwhm  - np.nanmean(mean_h2o_fwhm)), ':', color='#1f77b4', label="H2O FWHM = {0:.4f} km/s".format(np.nanmean(mean_h2o_fwhm)))
 
-        plt.xlabel('BJD')
-        plt.ylabel('Velocity [km/s]')
+        plt.xlabel(r"BJD")
+        plt.ylabel(r"Velocity [km/s]")
         plt.legend()
         plt.show()
 
@@ -247,7 +257,6 @@ parser.add_option("-s", action="store_true", dest="stack", help="Stack sequence 
 parser.add_option("-l", action="store_true", dest="polar_sequence", help="Force stack of a polar sequence", default=False)
 parser.add_option("-t", action="store_true", dest="telluric_ccf", help="Run telluric CCF", default=False)
 parser.add_option("-d", action="store_true", dest="correct_drift", help="correct RV drift", default=False)
-parser.add_option("-o", action="store_true", dest="overwrite", help="overwrite output files", default=False)
 parser.add_option("-p", action="store_true", dest="plot", help="plot", default=False)
 parser.add_option("-v", action="store_true", dest="verbose", help="verbose", default=False)
 
