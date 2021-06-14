@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 from astropy.io.fits.verify import VerifyWarning
 import warnings
 from scipy import constants
+import glob
 
 helpstr = """
 ----------------------------------------------------------------------------
@@ -75,7 +76,7 @@ def set_ccf_params(maskfile, telluric_masks=[], science_channel=True) :
     if len(telluric_masks) :
         for m in telluric_masks :
             loc["TELL_MASK_FILES"].append(m)
-    
+    loc["SOURCE_RV"] = 0.0
     # CCF is a set of Dirac functions
     #loc["KERNEL"] = None
     # boxcar length expressed in km/s
@@ -1223,8 +1224,49 @@ def make_wave_keywords(header) :
     return header
 
 
+def select_best_ccf_mask(obj_temp, mask_repository) :
+    """
+        Description: function to select a CCF mask that best matches
+        a given temperature.
+        """
 
-def apply_weights_to_ccf_mask(ccf_params, wave, fluxes, weights, median=True, remove_lines_with_nans=True, verbose=False) :
+    teff = {'GJ1002_neg_depth.mas': 2900,
+        'Gl905_neg_depth.mas': 2930,
+        'Gl725B_neg_depth.mas': 3106,
+        'Gl699_neg_depth.mas': 3224,
+        'Gl725A_neg_depth.mas': 3398,
+        'Gl412A_neg_depth.mas': 3549,
+        'Gl846_neg_depth.mas': 3880,
+        'HD189733_neg_depth.mas': 4870,
+        'TauBoo_neg_depth.mas': 6309}
+    
+    default_mask = mask_repository + 'Gl412A_neg_depth.mas'
+
+    pattern = mask_repository + '*.mas'
+
+    list_of_masks = sorted(glob.glob(pattern))
+
+    best_mask = default_mask
+    temp_diff = 1e20
+
+    for mask in list_of_masks :
+        
+        # get rid of full path before file name
+        mask_basename = os.path.basename(mask)
+
+        loc_teff_diff = np.abs(obj_temp - teff[mask_basename])
+
+        if loc_teff_diff < temp_diff :
+            temp_diff = loc_teff_diff
+            best_mask = mask
+
+    if temp_diff == 1e20 :
+        print("WARNING: Could not identify any suitable mask, returning default mask: {}".format(best_mask))
+
+    return best_mask
+
+
+def apply_weights_to_ccf_mask(ccf_params, wave, fluxes, fluxerrs, weights, median=True, remove_lines_with_nans=True, ordertoplot=31, source_rv=0., verbose=False, plot=False) :
     
     sci_table = read_mask(ccf_params['MASK_FILE'], ccf_params['MASK_COLS'])
     
@@ -1251,11 +1293,18 @@ def apply_weights_to_ccf_mask(ccf_params, wave, fluxes, weights, median=True, re
 
     speed_of_light_in_kps = constants.c / 1000.
     edge_size = ccf_params["CCF_WIDTH"]
+    #edge_size = 7. # +-7 km/s ~ instrumental resolution
     
     for order in range(49) :
         wl = wave[order]
         flux = fluxes[order]
+        fluxerr = fluxerrs[order]
         weight = weights[order]
+        
+        median_flux = np.nanmedian(flux)
+        mad = np.nanmedian(np.abs(flux - median_flux)) / 0.67449
+        
+        #print("order={0} median_flux={1:.4f} sigma={2:.4f}".format(order, median_flux, mad))
         
         minwl = wl[0] * (1.0 + edge_size / speed_of_light_in_kps)
         maxwl = wl[-1] * (1.0 - edge_size / speed_of_light_in_kps)
@@ -1267,19 +1316,42 @@ def apply_weights_to_ccf_mask(ccf_params, wave, fluxes, weights, median=True, re
         order_lines_wei = lines_wei[order_lines]
         order_lines_d = lines_d[order_lines]
 
-        wl_ini = order_lines_wlc * (1.0 - edge_size / speed_of_light_in_kps)
-        wl_end = order_lines_wlc * (1.0 + edge_size / speed_of_light_in_kps)
+        wl_ini = order_lines_wlc * (1.0 + (source_rv - edge_size) / speed_of_light_in_kps)
+        wl_end = order_lines_wlc * (1.0 + (source_rv + edge_size) / speed_of_light_in_kps)
 
         nlinesinorder = 0
         
+        if plot and order == ordertoplot :
+            wlc_starframe = order_lines_wlc * (1.0 + source_rv / speed_of_light_in_kps)
+
+            plt.vlines(wlc_starframe, median_flux - order_lines_wei / np.nanmax(order_lines_wei), median_flux,ls="--", lw=0.5, label="CCF mask lines")
+            plt.plot(wl,flux,'-', lw=0.5, color="grey", label="Template spectrum")
+            plt.plot(wl, 1.0 - fluxerr,'k:', lw=0.5, label="1-sigma noise threshold")
+
         for i in range(len(order_lines_wlc)) :
             inline = (wl >= wl_ini[i]) & (wl <= wl_end[i])
             #nanmask = ~np.isnan(flux[inline])
             #print(order, i, len(order_lines_wlc), wl_ini[i], wl_end[i], len(flux[inline]), len(flux[inline][nanmask]))
+            if len(flux[inline]) == 0 :
+                continue
             
+            line_mean_flux = np.nanmean(flux[inline])
+            line_mean_fluxerr = np.nanmean(fluxerr[inline])
+            line_mean_wl = np.nanmean(wl[inline])
+            
+            #if line_mean_flux > (1.0 - line_mean_fluxerr) :
+            #    continue
+
+            #print("Line: ",i,wl_ini[i],wl_end[i],line_mean_flux)
+            if plot and order == ordertoplot :
+                p = plt.plot(wl[inline],flux[inline],'.',alpha=0.5)
+                color = p[0].get_color()
+                #plt.plot([np.mean(wl[inline])],[np.nanmean(weight[inline])],'o', color=color)
+                plt.plot([line_mean_wl],[line_mean_flux],'o', color=color)
+    
             if remove_lines_with_nans :
-                #if len(flux[inline]) >  edge_size / 2. :
-                if np.all(np.isfinite(flux[inline])):
+                
+                if np.all(np.isfinite(flux[inline]) * np.isfinite(weight[inline])):
                     mask_centers = np.append(mask_centers, order_lines_wlc[i])
                     mask_d = np.append(mask_d, order_lines_d[i])
                     
@@ -1294,19 +1366,20 @@ def apply_weights_to_ccf_mask(ccf_params, wave, fluxes, weights, median=True, re
                 mask_centers = np.append(mask_centers, order_lines_wlc[i])
                 mask_d = np.append(mask_d, order_lines_d[i])
 
-                if ~np.isnan(np.nanmedian(weight[inline])) :
+                if np.isfinite(np.nanmedian(weight[inline])) :
                     if median :
                         mask_weights = np.append(mask_weights, order_lines_wei[i] * np.nanmedian(weight[inline]))
                     else :
                         mask_weights = np.append(mask_weights, order_lines_wei[i] * np.nanmean(weight[inline]))
                 else :
-                    mask_weights = np.append(mask_weights, order_lines_wei[i])
+                    mask_weights = np.append(mask_weights, order_lines_wei[i] * 0.)
 
                 mask_orders = np.append(mask_orders, float(order))
                 nlinesinorder += 1
         if verbose :
             print("Selected {0} lines in order {1} ".format(nlinesinorder,order))
-
+        if plot and order == ordertoplot :
+            plt.show()
     #mask_weights /= np.max(mask_weights)
 
     outmask = {}
@@ -1351,6 +1424,7 @@ def run_ccf_eder(ccf_params, wave, fluxes, header, ccfmask, rv_drifts={}, filena
     # --------------------------------------------------------------------------
     if verbose :
         print('\nRunning CCF calculation')
+
     props = ccf_calculation(ccf_params, wave, fluxes, blaze, targetrv, ccfmask["centers"],
                             ccfmask["weights"], berv, fit_type, mask_orders=ccfmask["orders"])
 
@@ -1375,3 +1449,5 @@ def run_ccf_eder(ccf_params, wave, fluxes, header, ccfmask, rv_drifts={}, filena
 # ==============================================================================
 # End of code
 # ==============================================================================
+
+

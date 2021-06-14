@@ -1214,6 +1214,51 @@ def save_rv_time_series(output, bjd, rv, rverr, time_in_rjd=True, rv_in_mps=Fals
     outfile.close()
 
 
+def generate_epoch_sets(file_list, maxdt=0.5, verbose=False) :
+
+    epoch_sets = {}
+    
+    """
+    for i in range(len(file_list)) :
+        hdr = fits.getheader(file_list[i])
+        print(i, file_list[i], hdr["MJDATE"], hdr["DATE-OBS"])
+    """
+    i=0
+    finish = False
+    seqnumber = 0
+    while i < len(file_list) :
+
+        epoch_key = file_list[i]
+
+        hdr = fits.getheader(file_list[i])
+        
+        epoch_sets[epoch_key] = [file_list[i]]
+        dts = [0.]
+        for j in range(i+1,len(file_list)) :
+            hdrtmp = fits.getheader(file_list[j])
+            
+            dt = np.abs(hdrtmp["MJDATE"] - hdr["MJDATE"])
+            if dt < maxdt :
+                epoch_sets[epoch_key].append(file_list[j])
+                dts.append(dt)
+                if j == len(file_list) - 1 :
+                    finish = True
+            else :
+                i = j - 1
+                break
+    
+        if verbose :
+            print("Seq={0:d} stack data: {1} Tf-Ti={2:.1f} hours".format(seqnumber, epoch_sets[epoch_key], (dts[-1]-dts[0])*24))
+        seqnumber += 1
+        
+        i += 1
+        if finish :
+            break
+
+    return epoch_sets
+
+
+
 
 def generate_polar_sets(file_list, verbose=False) :
 
@@ -1316,7 +1361,7 @@ def stack_sequence(exp, output_filename, efits=False) :
     tot_exptime = float(header0['EXPTIME'])
     meanbjd = float(header1['BJD'])
     meanberv = float(header1['BERV'])
-    totsnr = float(header0['SPEMSNR'])
+    #totsnr = float(header0['SPEMSNR'])
             
     for i in range(1,len(exp)) :
     # Load SPIRou reduced *t.fits file
@@ -1329,7 +1374,7 @@ def stack_sequence(exp, output_filename, efits=False) :
 
         meanbjd += float(hdr1['BJD'])
         meanberv += float(hdr1['BERV'])
-        totsnr += float(hdr0['SPEMSNR'])
+        #totsnr += float(hdr0['SPEMSNR'])
                 
         for order in range(49) :
             hdu_base["FluxAB"].data[order] += spc["FluxAB"].data[order]
@@ -1338,16 +1383,15 @@ def stack_sequence(exp, output_filename, efits=False) :
                 hdu_base["FluxB"].data[order] += spc["FluxB"].data[order]
                 hdu_base["FluxC"].data[order] += spc["FluxC"].data[order]
 
-        
     meanbjd /= len(exp)
     meanberv /= len(exp)
-    totsnr /= np.sqrt(float(len(exp)))
+    #totsnr /= np.sqrt(float(len(exp)))
             
     #update header
     hdu_base[0].header['EXPTIME'] = tot_exptime
     hdu_base[1].header['BJD'] = meanbjd
     hdu_base[1].header['BERV'] = meanberv
-    hdu_base[0].header['SPEMSNR'] = totsnr
+    #hdu_base[0].header['SPEMSNR'] = totsnr
 
     hdu_base.writeto(output_filename, overwrite=True)
 
@@ -1410,3 +1454,27 @@ def stack_polar_sequence(polar_sets, correct_drift=False, overwrite=True) :
                     print("WARNING: fp file to obtain RV_DRIFT not found, skipping ...")
     
     return output_file_list
+
+
+def get_teff_from_data(inputdata) :
+    """
+        Description: function to return effective temperature
+        for a list  of SPIRou spectra.
+        """
+    
+    temperatures = []
+    for i in range(len(inputdata)) :
+        hdr = fits.getheader(inputdata[i], 0) + fits.getheader(inputdata[i], 1)
+        if "OBJTEMP" in hdr.keys() :
+            if 0 < hdr["OBJTEMP"] < 1e6 :
+                temperatures.append(hdr["OBJTEMP"])
+            else :
+                temperatures.append(np.nan)
+        else :
+            temperatures.append(np.nan)
+
+    temperatures = np.array(temperatures)
+    
+    teff = np.nanmedian(temperatures)
+    
+    return teff

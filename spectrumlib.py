@@ -1446,3 +1446,44 @@ def get_ccf_mask(loc, filename, lowlim=0., uplim=1.) :
     loc['LL_MASK_CTR'] = ll_mask_ctr[cutoff_filter]
     loc['W_MASK'] = w_mask[cutoff_filter]
     return loc
+
+
+def write_spectrum_orders_to_fits(waves, fluxes, fluxerrs, filename, header=None):
+    """
+        Description: function to save the SPIROU spectrum (order-by-order) to a fits file
+        """
+    
+    if header is None :
+        header = fits.Header()
+    header.set('ORIGIN', "spirou-tools")
+    header.set('UTCSAVED', time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()))
+
+    maxlen = 0
+    for order in range(49) :
+        if len(waves[order]) > maxlen :
+            maxlen = len(waves[order])
+
+    wl_data = np.full((49,maxlen), np.nan)
+    flux_data = np.full((49,maxlen), np.nan)
+    err_data = np.full((49,maxlen), np.nan)
+
+    for order in range(49) :
+        for i in range(len(waves[order])) :
+            wl_data[order][i] = waves[order][i]
+            flux_data[order][i] = fluxes[order][i]
+            err_data[order][i] = fluxerrs[order][i]
+
+    header.set('TTYPE1', "WAVE")
+    header.set('TUNIT1', "NM")
+    header.set('TTYPE2', "FLUX")
+    header.set('TUNIT2', "COUNTS")
+    header.set('TTYPE2', "FLUXERR")
+    header.set('TUNIT2', "COUNTS")
+
+    primary_hdu = fits.PrimaryHDU(header=header)
+    hdu_wl = fits.ImageHDU(data=wl_data, name="WAVE")
+    hdu_flux = fits.ImageHDU(data=flux_data, name="FLUX")
+    hdu_err = fits.ImageHDU(data=err_data, name="FLUXERR")
+    mef_hdu = fits.HDUList([primary_hdu, hdu_wl, hdu_flux, hdu_err])
+
+    mef_hdu.writeto(filename, overwrite=True)

@@ -10,7 +10,7 @@
     
     Simple usage example:
     
-    python rv_analysis.py --pattern=data/TOI-1278/*__HK__*.rdb --output=data/TOI-1278/TOI-1278.rdb -f -c -e --period=14.
+    python ~/spirou-tools/spirou-ccf/rv_analysis.py --input=data/TOI-1278/*__HK__*.rdb --output=data/TOI-1278/TOI-1278.rdb -f -c -e --period=14.
     """
 
 __version__ = "1.0"
@@ -31,9 +31,10 @@ from scipy.optimize import curve_fit
 from scipy import stats
 
 parser = OptionParser()
-parser.add_option("-i", "--pattern", dest="pattern", help="Input RV data pattern",type='string',default="")
+parser.add_option("-i", "--input", dest="input", help="Input RV data pattern",type='string',default="")
 parser.add_option("-o", "--output", dest="output", help="Output RV file name (end with .rdb)",type='string',default="")
 parser.add_option("-r", "--period", dest="period", help="Orbital period (d)",type='string',default="")
+parser.add_option("-s", "--binsize", dest="binsize", help="One epoch bin size (d)",type='string',default="1.0")
 parser.add_option("-e", action="store_true", dest="combine_epochs", help="Combine points within the same epochs", default=False)
 parser.add_option("-c", action="store_true", dest="calib", help="calibrate data sets", default=False)
 parser.add_option("-f", action="store_true", dest="fit_orbit", help="fit orbit", default=False)
@@ -47,16 +48,17 @@ except:
     sys.exit(1)
 
 if options.verbose:
-    print('Input RV data pattern: ', options.pattern)
+    print('Input RV data pattern: ', options.input)
     print('Output plot file name: ', options.output)
     print('Orbital period (d): ', options.period)
+    print('One epoch bin size (d): ', options.binsize)
 
 if options.verbose:
     print("Creating list of RV data files...")
-rv_files = sorted(glob.glob(options.pattern))
+rv_files = sorted(glob.glob(options.input))
 
 if len(rv_files) == 0:
-    print("Could not find input files that match pattern {}, exiting ... ".format(options.pattern))
+    print("Could not find input files that match input pattern {}, exiting ... ".format(options.input))
     exit()
 
 fixed_period = False
@@ -68,7 +70,7 @@ for i in range(len(rv_files)):
     loc_bjd, loc_rv, loc_rverr = ccf2rv.read_rv_time_series(rv_files[i])
     #plt.errorbar(loc_bjd, loc_rv, yerr=loc_rverr, fmt='o', color='r', alpha=0.4)
     if options.combine_epochs :
-        loc_bjd, loc_rv, loc_rverr = ccf2rv.combine_rvs_per_epoch(loc_bjd, loc_rv, loc_rverr, median=False, nsig=5)
+        loc_bjd, loc_rv, loc_rverr = ccf2rv.combine_rvs_per_epoch(loc_bjd, loc_rv, loc_rverr, one_epoch_size=float(options.binsize), median=False, nsig=5)
         #plt.errorbar(loc_bjd, loc_rv, yerr=loc_rverr, fmt='o', color='k')
     #plt.show()
     bjd.append(loc_bjd)
@@ -134,7 +136,11 @@ for i in range(len(rv_files)):
 rvs_calib = np.array(rvs_calib)
 
 median_rv_calib = np.median(rvs_calib, axis=0)
-mad_rv_calib = np.median(np.abs(rvs_calib - median_rv_calib), axis=0) / 0.67449
+if len(rv_files) == 1 :
+    mad_rv_calib = rverr[0]
+else :
+    mad_rv_calib = np.median(np.abs(rvs_calib - median_rv_calib), axis=0) / 0.67449
+
 sigma_eff = np.median(mad_rv_calib)
 
 if options.plot :

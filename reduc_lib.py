@@ -32,7 +32,9 @@ from astropy.io import ascii
 from scipy import constants
 
 from scipy.interpolate import interp1d
+from astropy.convolution import convolve, Gaussian1DKernel
 
+import ccf_lib
 
 def check_efits(inputdata, verbose) :
     inputedata = []
@@ -62,7 +64,7 @@ def read_rvdata(rvfile) :
     return rvbjds, rvs, rverrs
 
 
-def load_array_of_spirou_spectra(inputdata, rvfile="", correct_blaze=True, apply_berv=True, silent=True, verbose=False, plot=False) :
+def load_array_of_spirou_spectra(inputdata, rvfile="", correct_blaze=True, apply_berv=True, silent=True, verbose=False, plot=False, convolve_spectra=False, kernel_size=1, plot_diagnostics=False) :
 
     loc = {}
     loc["input"] = inputdata
@@ -97,32 +99,23 @@ def load_array_of_spirou_spectra(inputdata, rvfile="", correct_blaze=True, apply
 
     spectra = []
     speed_of_light_in_kps = constants.c / 1000.
-    
+
+    if plot_diagnostics :
+        bjd, snr, airmass, berv = [], [], [], []
+
+    gausskernel = Gaussian1DKernel(stddev=kernel_size)
+
     for i in range(len(inputdata)) :
         
-        if verbose :
-            print("Loadinng spectrum:",inputdata[i],"{0}/{1}".format(i,len(inputdata)-1))
+        #if verbose :
+        #    print("Loading spectrum:",inputdata[i],"{0}/{1}".format(i,len(inputdata)-1))
 
         if not (inputdata[i].endswith('t.fits') or inputdata[i].endswith('e.fits')) :
             if verbose:
                 print("WARNING: File extension not supported, skipping ... ")
             continue
 
-        # open fits file
-        hdu = fits.open(inputdata[i])
-        hdr = hdu[0].header + hdu[1].header
-
-        # get DETECTOR GAIN and READ NOISE from header
-        gain, rdnoise = hdr['GAIN'], hdr['RDNOISE']
-
         spectrum = {}
-        spectrum["header"] = hdr
-
-        WaveAB = hdu["WaveAB"].data
-        FluxAB = hdu["FluxAB"].data
-        BlazeAB = hdu["BlazeAB"].data
-        if inputdata[i].endswith('t.fits') :
-            Recon = hdu["Recon"].data
 
         # set source RVs
         spectrum['FILENAME'] = inputdata[i]
@@ -130,43 +123,82 @@ def load_array_of_spirou_spectra(inputdata, rvfile="", correct_blaze=True, apply
         spectrum["rvfile"] = rvfile
         spectrum['RV'] = rvs[i]
         spectrum['RVERR'] = rverrs[i]
-        
-        spectrum['DATE'] = hdr["DATE"]
-
-        spectrum['BJD_mid'] = hdr["BJD"] + (hdr['MJDEND'] - hdr['MJD-OBS']) / 2.
-        spectrum['BERV'] = float(hdr['BERV'])
-        
-        if "EXTSN035" in hdr.keys() :
-            spectrum['snr32'] = float(hdr["EXTSN035"])
-        elif "SNR35" in hdr.keys():
-            spectrum['snr32'] = float(hdr["SNR35"])
-        else :
-            spectrum['snr32'] = 0
-        
-        spectrum['airmass'] = hdr['AIRMASS']
-        spectrum['exptime'] = hdr['EXPTIME']
 
         wl_mean = []
         out_wl, out_flux, out_fluxerr, out_order = [], [], [], []
         out_recon, out_blaze = [], []
         wl_sf, vels = [], []
 
+        hdu = fits.open(inputdata[i])
+
+        hdr = deepcopy(hdu[0].header + hdu[1].header)
+
+        spectrum["header"] = hdr
+
+        # get DETECTOR GAIN and READ NOISE from header
+        gain, rdnoise = hdr['GAIN'], hdr['RDNOISE']
+
+        WaveAB = deepcopy(hdu["WaveAB"].data)
+        FluxAB = deepcopy(hdu["FluxAB"].data)
+        BlazeAB = deepcopy(hdu["BlazeAB"].data)
+        if inputdata[i].endswith('t.fits') :
+            Recon = deepcopy(hdu["Recon"].data)
+
+        spectrum['DATE'] = hdr["DATE"]
+        spectrum['BJD_mid'] = hdr["BJD"] + (hdr['MJDEND'] - hdr['MJD-OBS']) / 2.
+        spectrum['BERV'] = float(hdr['BERV'])
+
+        spectrum['airmass'] = hdr['AIRMASS']
+        spectrum['exptime'] = hdr['EXPTIME']
+
+        # Estimate signal-to-noise
+        max_flux = []
         for order in range(49) :
-            wl, flux = WaveAB[order], FluxAB[order]
-            if inputdata[i].endswith('t.fits') :
-                fluxerr = np.sqrt(FluxAB[order] * Recon[order] + (rdnoise * rdnoise / gain * gain))
-                recon = Recon[order]
-            else :
-                fluxerr = np.sqrt(FluxAB[order] + (rdnoise * rdnoise / gain * gain))
+            finite = np.isfinite(FluxAB[order])
+            if len(FluxAB[order][finite]) :
+                max_flux.append(np.nanmax(FluxAB[order][finite]))
+        mean_flux = np.nanmean(np.array(max_flux))
+        maxsnr = mean_flux / np.sqrt(mean_flux + (rdnoise * rdnoise / gain * gain))
 
-            blaze = BlazeAB[order]
+        spectrum['SNR'] = maxsnr
+            
+        if plot_diagnostics :
+            if i == 0 :
+                objectname = hdr['OBJECT']
+            bjd.append(spectrum['BJD_mid'])
+            snr.append(maxsnr)
+            airmass.append(spectrum['airmass'])
+            berv.append(spectrum['BERV'])
 
-            if correct_blaze :
-                nblaze = blaze / np.nanmedian(blaze)
-                flux /= nblaze
-                fluxerr /= nblaze
+        if verbose :
+            print("Spectrum: {0} {1}/{2} BJD={3:.6f} SNR={4:.1f} BERV={5:.3f} km/s".format(inputdata[i],i,len(inputdata)-1,spectrum['BJD_mid'],maxsnr,spectrum['BERV']))
+
+        for order in range(49) :
+            
+            wl = deepcopy(WaveAB[order])
 
             wlc = 0.5 * (wl[0] + wl[-1])
+
+            if convolve_spectra :
+                flux = deepcopy(convolve(FluxAB[order], gausskernel))
+                blaze = deepcopy(convolve(BlazeAB[order], gausskernel))
+            else :
+                flux = deepcopy(FluxAB[order])
+                blaze = deepcopy(BlazeAB[order])
+
+            if inputdata[i].endswith('t.fits') :
+                if convolve_spectra :
+                    recon = deepcopy(convolve(Recon[order], gausskernel))
+                else :
+                    recon = deepcopy(Recon[order])
+                fluxerr = np.sqrt(flux * recon + (rdnoise * rdnoise / gain * gain))
+            else :
+                fluxerr = np.sqrt(flux + (rdnoise * rdnoise / gain * gain))
+
+            if correct_blaze :
+                nblaze = blaze / np.nanpercentile(blaze,90)
+                flux /= nblaze
+                fluxerr /= nblaze
 
             if plot :
                 p = plt.plot(wl, flux)
@@ -182,7 +214,9 @@ def load_array_of_spirou_spectra(inputdata, rvfile="", correct_blaze=True, apply
             else :
                 vel_shift = spectrum['RV']
 
-            wl_stellar_frame = wl / (1.0 + vel_shift / speed_of_light_in_kps)
+            # relativistic calculation
+            wl_stellar_frame = wl * np.sqrt((1-vel_shift/speed_of_light_in_kps)/(1+vel_shift/speed_of_light_in_kps))
+            #wl_stellar_frame = wl / (1.0 + vel_shift / speed_of_light_in_kps)
             vel = speed_of_light_in_kps * ( wl_stellar_frame / wlc - 1.)
 
             out_wl.append(wl)
@@ -190,13 +224,13 @@ def load_array_of_spirou_spectra(inputdata, rvfile="", correct_blaze=True, apply
             out_fluxerr.append(fluxerr)
             if inputdata[i].endswith('t.fits') :
                 out_recon.append(recon)
+                del recon
             out_blaze.append(blaze)
             out_order.append(order_vec)
             wl_sf.append(wl_stellar_frame)
             vels.append(vel)
             wl_mean.append(wlc)
-
-
+                
         if plot :
             plt.xlabel(r"wavelength [nm]")
             plt.xlabel(r"flux")
@@ -218,8 +252,34 @@ def load_array_of_spirou_spectra(inputdata, rvfile="", correct_blaze=True, apply
 
         spectra.append(spectrum)
 
+        hdu.close()
+
     loc["spectra"] = spectra
 
+    if plot_diagnostics :
+        bjd = np.array(bjd)
+        snr = np.array(snr)
+        airmass = np.array(airmass)
+        berv = np.array(berv)
+        
+        fig, axs = plt.subplots(3, sharex=True)
+        fig.suptitle('{} spectra of {}'.format(len(inputdata), objectname))
+        axs[0].plot(bjd, snr, '-', color="orange",label="SNR")
+        axs[0].set_ylabel('SNR')
+        axs[0].legend()
+
+        axs[1].plot(bjd, airmass, '--', color="olive",label="Airmass")
+        axs[1].set_ylabel('Airmass')
+        axs[1].legend()
+
+        axs[2].plot(bjd, berv, ':', color="darkblue",label="BERV")
+        axs[2].set_xlabel('BJD')
+        axs[2].set_ylabel('BERV [km/s]')
+        axs[2].legend()
+        
+        plt.show()
+        #exit()
+    
     return loc
 
 
@@ -245,6 +305,7 @@ def get_spectral_data(array_of_spectra, ref_index=0, edge_size=100, verbose=Fals
     fluxes, fluxerrs, orders = [], [], []
     blazes, recons = [], []
     wl_out, wlsf_out, vel_out = [], [], []
+    hdr = []
 
     for order in range(49) :
         snrs.append([])
@@ -265,6 +326,7 @@ def get_spectral_data(array_of_spectra, ref_index=0, edge_size=100, verbose=Fals
             print("Loading input spectrum {0}/{1} : {2}".format(i,nspectra-1,spectrum['FILENAME']))
             
         filenames.append(spectrum['FILENAME'])
+        hdr.append(spectrum['header'])
         rvfiles.append(spectrum['rvfile'])
         dates.append(spectrum['DATE'])
             
@@ -315,10 +377,12 @@ def get_spectral_data(array_of_spectra, ref_index=0, edge_size=100, verbose=Fals
 
         fluxes[order]  = np.array(fluxes[order], dtype=float)
         fluxerrs[order]  = np.array(fluxerrs[order], dtype=float)
-        blazes[order]= np.array(blazes[order], dtype=float)
+        blazes[order] = np.array(blazes[order], dtype=float)
         if 'recon' in spectrum.keys():
             recons[order]= np.array(recons[order], dtype=float)
 
+
+    loc["header"] = hdr
     loc["filenames"] = filenames
 
     loc["bjds"] = bjds
@@ -355,30 +419,18 @@ def get_wlmin_wlmax(spectra, edge_size=100) :
     speed_of_light_in_kps = constants.c / 1000.
     
     # find minimum and maximum wavelength for valid (not NaN) data
-    wlmin, wlmax = np.full(49,+1e20), np.full(49,-1e20)
+    wlmin, wlmax = np.full(49,-1e20), np.full(49,+1e20)
 
     for order in range(49) :
         for i in range(spectra['nspectra']) :
-            #nanmask = ~np.isnan(spectra["fluxes"][order][i])
-            #minwl_loc = np.min(spectra["waves_sf"][order][i][nanmask])
-            #maxwl_loc = np.max(spectra["waves_sf"][order][i][nanmask])
-            minwl_sf = np.min(spectra["waves_sf"][order][i])
-            minwl_rest = np.min(spectra["waves"][order][i])
+            minwl_sf = np.nanmin(spectra["waves_sf"][order][i])
+            maxwl_sf = np.nanmax(spectra["waves_sf"][order][i])
 
-            maxwl_sf = np.max(spectra["waves_sf"][order][i])
-            maxwl_rest = np.max(spectra["waves"][order][i])
-
-            minwl_loc = np.min(np.array([minwl_sf,minwl_rest]))
-            maxwl_loc = np.max(np.array([maxwl_sf,maxwl_rest]))
+            if minwl_sf > wlmin[order] :
+                wlmin[order] = minwl_sf
             
-            minwl_loc *= (1.0 + edge_size / speed_of_light_in_kps)
-            maxwl_loc *= (1.0 - edge_size / speed_of_light_in_kps)
-
-            if minwl_loc < wlmin[order] :
-                wlmin[order] = minwl_loc
-            
-            if maxwl_loc > wlmax[order] :
-                wlmax[order] = maxwl_loc
+            if maxwl_sf < wlmax[order] :
+                wlmax[order] = maxwl_sf
 
     spectra["wlmin"] = wlmin
     spectra["wlmax"] = wlmax
@@ -454,7 +506,7 @@ def mask_fluxes_out_of_windows(spectra, fluxkey="fluxes", velkey="vels", wavekey
     return spectra
 
 
-def set_common_wl_grid(spectra, maxndatapoints=4088, vel_sampling=2.0, verbose=False) :
+def set_common_wl_grid(spectra, vel_sampling=2.0, verbose=False) :
 
     if "wlmin" not in spectra.keys() or "wlmax" not in spectra.keys():
         print("ERROR: function set_common_wl_grid() requires keywords wlmin and wlmax in input spectra, exiting.. ")
@@ -462,26 +514,40 @@ def set_common_wl_grid(spectra, maxndatapoints=4088, vel_sampling=2.0, verbose=F
     
     common_wl, common_vel = [], []
     speed_of_light_in_kps = constants.c / 1000.
+    drv = 1.0 + vel_sampling / speed_of_light_in_kps
+    drv_neg = 1.0 - vel_sampling / speed_of_light_in_kps
 
+    np_min = 1e50
+    
     for order in range(49) :
         
         wlmin = spectra["wlmin"][order]
         wlmax = spectra["wlmax"][order]
         
-        wlc = (wlmin+wlmax)/2
-        
         wl_array = []
-        
         wl = wlmin
-        for i in range(maxndatapoints) :
+        while wl < wlmax * drv_neg :
+            wl *= drv
             wl_array.append(wl)
-            wl *= (1.0 + vel_sampling / speed_of_light_in_kps)
         wl_array = np.array(wl_array)
         
+        wlc = (wl_array[0]+wl_array[-1])/2
+
         vels = speed_of_light_in_kps * ( wl_array / wlc - 1.)
         
         common_vel.append(vels)
         common_wl.append(wl_array)
+    
+        if len(wl_array) < np_min :
+            np_min = len(wl_array)
+
+    for order in range(49) :
+        diff_size = len(common_wl[order]) - np_min
+        half_diff_size = int(diff_size/2)
+        
+        if diff_size :
+            common_vel[order] = common_vel[order][half_diff_size:np_min+half_diff_size]
+            common_wl[order] = common_wl[order][half_diff_size:np_min+half_diff_size]
 
     spectra["common_vel"] = np.array(common_vel, dtype=float)
     spectra["common_wl"] = np.array(common_wl, dtype=float)
@@ -521,10 +587,10 @@ def interp_spectrum(wl_out, wl_in, flux_in, good_windows, kind='cubic') :
     return flux_out
 
 
-def align_spectra(spectra, star_frame=True, interp_kind='cubic', plot=False, verbose=False) :
+def resample_and_align_spectra(spectra, star_frame=True, interp_kind='cubic', plot=False, verbose=False) :
 
     if "common_wl" not in spectra.keys() :
-        print("ERROR: function align_spectra() requires keyword common_wl in input spectra, exiting.. ")
+        print("ERROR: function resample_and_align_spectra() requires keyword common_wl in input spectra, exiting.. ")
         exit()
     
     aligned_waves, aligned_waves_sf = [], []
@@ -624,14 +690,13 @@ def reduce_spectra(spectra, nsig_clip=0.0, combine_by_median=False, subtract=Tru
         fluxes = order_template["flux_arr_sub"] + order_template["flux"] - sub_flux_base
 
         # 2nd pass - to build template from calibrated fluxes
-        order_template = calculate_template(fluxes, wl=spectra[wavekey][order], fit=True, median=combine_by_median, subtract=subtract, sub_flux_base=sub_flux_base, verbose=False, plot=plot)
+        order_template = calculate_template(fluxes, wl=spectra[wavekey][order], fit=True, median=combine_by_median, subtract=subtract, sub_flux_base=sub_flux_base, verbose=False, plot=False)
 
         # apply sigma-clip using template and median dispersion in time as clipping criteria
         # bad values can either be replaced by the template values, by interpolated values or by NaNs
         if nsig_clip > 0 :
-            order_template = sigma_clip(order_template, nsig=nsig_clip, interpolate=False, replace_by_model=False, sub_flux_base=sub_flux_base, plot=plot)
-            
-            order_template = sigma_clip_remove_bad_columns(order_template, nsig=nsig_clip, plot=plot)
+            order_template = sigma_clip(order_template, nsig=nsig_clip, interpolate=False, replace_by_model=False, sub_flux_base=sub_flux_base, plot=False)
+            #order_template = sigma_clip_remove_bad_columns(order_template, nsig=nsig_clip, plot=False)
 
         # Recover fluxes already shifted and re-scaled to match the template
         if subtract :
@@ -644,6 +709,9 @@ def reduce_spectra(spectra, nsig_clip=0.0, combine_by_median=False, subtract=Tru
 
         # save number of spectra in the time series
         order_template['nspectra'] = spectra['nspectra']
+
+        # save order flag
+        order_template['order'] = order
 
         mean_signal, noise = [], []
         rel_noise = []
@@ -658,7 +726,8 @@ def reduce_spectra(spectra, nsig_clip=0.0, combine_by_median=False, subtract=Tru
         m_signal = np.nanmean(mean_signal)
         m_ref_snr = np.nanmean(spectra["snrs"][order])
         m_noise = np.nanmean(noise)
-        m_snr = np.nanmean(mean_signal/noise)
+        #m_snr = np.nanmean(mean_signal/noise)
+        m_snr = m_signal/m_noise
         sig_snr = np.nanstd(mean_signal/noise)
         m_rel_noise = np.nanmedian(rel_noise)
 
@@ -715,7 +784,7 @@ def reduce_spectra(spectra, nsig_clip=0.0, combine_by_median=False, subtract=Tru
 
 
 #################################################################################################
-def calculate_template(flux_arr, wl=[], fit=False, median=True, subtract=False, sub_flux_base=1.0, verbose=False, plot=False, pfilename=""):
+def calculate_template(flux_arr, wl=[], fit=False, median=True, subtract=False, sub_flux_base=1.0, min_npoints=100, verbose=False, plot=False, pfilename=""):
     """
         Compute the mean/median template spectrum along the time axis and divide/subtract
         each exposure by the mean/median
@@ -775,7 +844,7 @@ def calculate_template(flux_arr, wl=[], fit=False, median=True, subtract=False, 
             
             nanmask = ~np.isnan(flux_arr[i])
             
-            if len(flux_arr[i][nanmask]) > 100 :
+            if len(flux_arr[i][nanmask]) > min_npoints :
                 #guess = [0.0001, 1.001]
                 guess = [0.0001, 1.001, 0.0000001]
                 pfit, success = optimize.leastsq(errfunc, guess, args=(flux_arr[i], x))
@@ -834,6 +903,8 @@ def calculate_template(flux_arr, wl=[], fit=False, median=True, subtract=False, 
     loc["flux_residuals"] = residuals
     loc["snr"] = flux_arr / flux_template_medsig
 
+    loc["template_source"] = "data"
+    
     template_nanmask = ~np.isnan(flux_template)
     template_nanmask &= ~np.isnan(flux_template_medsig)
     
@@ -1221,19 +1292,22 @@ def sigma_clip(template, nsig=3.0, interpolate=False, replace_by_model=True, sub
     return template
 
 
-
 def sigma_clip_remove_bad_columns(template, nsig=2.0, plot=False) :
     
     template_sigma = np.nanstd(np.abs(template["flux_residuals"]),axis=0)
 
     good_wl_channels = template_sigma < nsig * template["fluxerr_model"]
-    
+
     clean_template = {}
     clean_template["fit"] = template["fit"]
     clean_template["median"] = template["median"]
     clean_template["subtract"] = template["subtract"]
     clean_template["pfilename"] = template["pfilename"]
     
+    clean_template["shift"] = template["shift"]
+    clean_template["scale"] = template["scale"]
+    clean_template["quadratic"] = template["quadratic"]
+
     flux_arr = np.full_like(template["flux_arr"], np.nan)
     flux_arr_sub = np.full_like(template["flux_arr_sub"], np.nan)
     flux_residuals = np.full_like(template["flux_residuals"], np.nan)
@@ -1247,7 +1321,6 @@ def sigma_clip_remove_bad_columns(template, nsig=2.0, plot=False) :
         if plot :
             plt.plot(template["wl"][good_wl_channels], template["flux_residuals"][i][good_wl_channels], '.', color='g')
             plt.plot(template["wl"][~good_wl_channels], template["flux_residuals"][i][~good_wl_channels], '.', color='r')
-
 
     clean_template["fluxerr_model"] = np.full_like(template["fluxerr_model"], np.nan)
     clean_template["flux"] = np.full_like(template["flux"], np.nan)
@@ -1302,6 +1375,10 @@ def normalize_spectra(spectra, template, fluxkey="fluxes", fluxerrkey="fluxerrs"
         template[order]["fluxerr"] /= continuum
         template[order]["fluxerr_model"] /= continuum
         
+        for j in range(len(template[order]["flux_arr"])) :
+            template[order]["flux_arr"][j] /= continuum
+            template[order]["flux_residuals"][j] /= continuum
+
         continuum_fluxes.append(continuum)
 
     if plot :
@@ -1336,7 +1413,6 @@ def calculate_weights(spectra, template, normalize_weights=True, use_err_model=T
         loc_weights = np.full_like(fluxerr, np.nan)
         
         loc_weights[nanmask] = 1. / (fluxerr[nanmask] * fluxerr[nanmask])
-
         weights.append(loc_weights)
         
         if len(loc_weights[nanmask]) :
@@ -1345,12 +1421,12 @@ def calculate_weights(spectra, template, normalize_weights=True, use_err_model=T
             normfactor.append(np.nan)
 
     normfactor = np.array(normfactor)
-
+    
     if normalize_weights :
-        median_norm_factor = np.nanmax(normfactor)
+        median_norm_factor = np.nanmax(normfactor[np.isfinite(normfactor)])
     else :
         median_norm_factor = 1.0
-
+    
     for order in range(len(template)) :
         
         order_template = template[order]
@@ -1431,5 +1507,288 @@ def get_fraction_of_nans(spectra, label="", fluxkey="fluxes", fluxerrkey="fluxer
 
     if verbose :
         print("Fraction of NaNs {0}: {1} / {2} = {3:.2f} %  dv = {4:.2f} km/s".format(label, loc["nnans"], loc["npixs"], loc["totfnans"]*100, np.nanmedian(vel_diff)))
+
+    return loc
+
+
+
+def reduce_timeseries_of_spectra(inputdata, ccf_mask, rvfile="", use_efits=False, fix_gaps=False, max_gap_size=8.0, nsig_clip=3.0, align_spectra=True, vel_sampling=1.8, min_window_size=200., tel_mask="", h2o_mask="", telluric_rv=False, ccf_width=100, source_rv=0., output_template="", verbose=False) :
+    
+    """
+        Description: function to process a series of SPIRou spectra. The processing consist of
+        the following steps:
+        1. Load data in *t.fits format. Optionally, one may also allow to read associated *e.fits data.
+        2. Organize spectral data into time arrays for each spectral order. This allows the processing
+        to be done in an order-by-order basis.
+        3. Deal with gaps in the data.
+        4. Resample and align (by interpolation) all spectra to the same grid evenly spaced
+        in velocity space.
+        5. Run the reduce_spectra routine, which calculates a median template, calibrates all
+        spectra (2nd order polinomial) to match the template, and calculates the MAD dispersion
+        around the template for each spectral channel. These are run iteratively (typically 3 times).
+        Then it applies a sigma-clip filter.
+        6. Calculate a continuum spectrum in the template and apply this continuum normalization to
+        all spectra in the time series.
+        7. Calculate the weights for each line in the CCF mask and construct an optimal CCF mask for
+        the input spectra.
+        8. Run CCF analysis on the template spectrum to calculate the FWHM and RV of the source.
+        9. Save data and other quantities in an output dictionary.
+        """
+    
+    
+    # check if there are e.fits files
+    if use_efits :
+        inputedata, efits_ok = check_efits(inputdata, verbose)
+    else:
+        inputedata, efits_ok = [], False
+        espectra, etemplate = None, None
+        array_of_espectra = None
+
+    if verbose :
+        print("******************************")
+        print("STEP: Loading SPIRou data ...")
+        print("******************************")
+    # Load data from list of input spectra
+    # First load spectra into a container
+    array_of_spectra = load_array_of_spirou_spectra(inputdata, rvfile=rvfile, correct_blaze=True, apply_berv=True, verbose=verbose, plot=False, plot_diagnostics=False)
+
+    # Then load data into order vectors -- it is more efficient to work the reduction order-by-order
+    spectra = get_spectral_data(array_of_spectra, verbose=False)
+
+    # Load *e.fits data if they are ok
+    if efits_ok :
+        array_of_espectra = load_array_of_spirou_spectra(inputedata, correct_blaze=True, apply_berv=True, verbose=verbose)
+        espectra = get_spectral_data(array_of_espectra, verbose=False)
+    else :
+        espectra, etemplate = None, None
+        array_of_espectra = None
+
+    #if verbose :
+    #    print("******************************")
+    #    print("STEP: Detecting gap-free windows ...")
+    #    print("******************************")
+    # Detect gaps in the data and create a gap function for good windows without gaps
+    # Use wide values to avoid too much clipping at this point. This will improve the noise model
+    spectra = get_gapfree_windows(spectra, max_vel_distance=max_gap_size, min_window_size=min_window_size, fluxkey="fluxes", wavekey="waves_sf", verbose=False)
+    if efits_ok :
+        espectra = get_gapfree_windows(espectra, max_vel_distance=max_gap_size, min_window_size=min_window_size, fluxkey="fluxes", wavekey="waves_sf", verbose=False)
+    if fix_gaps :
+        spectra = mask_fluxes_out_of_windows(spectra, fluxkey="fluxes", wavekey="waves_sf", verbose=False)
+    """
+    for order in range(49) :
+        wl = spectra["waves_sf"][order][0]
+        flux = spectra["fluxes"][order][0]
+        plt.plot(wl, flux, color='b', alpha=0.5)
+    """
+
+    if align_spectra :
+        print("******************************")
+        print("STEP: Aligning spectra to a common wavelength grid of {0:.2f} km/s ...".format(vel_sampling))
+        print("******************************")
+        # Set a common wavelength grid for all input spectra
+        spectra = set_common_wl_grid(spectra, vel_sampling=vel_sampling)
+        # Interpolate all spectra to a common wavelength grid
+        spectra = resample_and_align_spectra(spectra, interp_kind='cubic', verbose=False)
+        
+        # set keywords to inform following routines to use aligned spectra
+        fluxkey, fluxerrkey = "aligned_fluxes", "aligned_fluxerrs"
+        waveskey, wavekey = "aligned_waves", "common_wl"
+        
+        """
+        for order in range(49) :
+            wl = spectra[waveskey][order][0]
+            flux = spectra[fluxkey][order][0]
+            plt.plot(wl, flux, color='r', alpha=0.5)
+        plt.show()
+        exit()
+        """
+    else :
+        fluxkey, fluxerrkey = "fluxes", "fluxerrs"
+        waveskey, wavekey =  "waves_sf", "wl_sf"
+
+    if verbose :
+        print("******************************")
+        print("STEP: Reducing spectra ...")
+        print("******************************")
+
+        print("Calculating template of *t.fits spectra ...")
+    # First run reduce routine to create template, calibrate all spectra to match template, and then
+    # apply a sigma-clip
+    template = reduce_spectra(spectra, nsig_clip=nsig_clip, combine_by_median=True, subtract=False, fluxkey=fluxkey, fluxerrkey=fluxerrkey, wavekey=wavekey, update_spectra=True, plot=False, verbose=verbose)
+
+    if telluric_rv :
+        if verbose :
+            print("Calculating template of telluric (recon) spectra ...")
+        telluric_template = reduce_spectra(spectra, nsig_clip=6.0, combine_by_median=True, subtract=False, fluxkey="recons", fluxerrkey="fluxerrs", wavekey="wl", update_spectra=True, plot=False, verbose=verbose)
+    else :
+        telluric_template = None
+
+    # Detect gaps again since the above sigma-clip procedure can introduce new gaps
+    #spectra = get_gapfree_windows(spectra, max_vel_distance=max_gap_size, min_window_size=min_window_size, fluxkey=fluxkey, wavekey=waveskey, verbose=False)
+    #if fix_gaps :
+    #    spectra = mask_fluxes_out_of_windows(spectra, fluxkey=fluxkey, wavekey=waveskey, verbose=verbose)
+
+    if efits_ok :
+        if verbose :
+            print("Calculating template of *e.fits spectra ...")
+        etemplate = reduce_spectra(espectra, nsig_clip=nsig_clip, combine_by_median=True, subtract=False, verbose=verbose, plot=False, fluxkey="fluxes", fluxerrkey="fluxerrs", wavekey="wl_sf", update_spectra=True)
+
+    if verbose :
+        print("******************************")
+        print("STEP: normalizing spectra ...")
+        print("******************************")
+
+    if efits_ok :
+        espectra, etemplate = normalize_spectra(espectra, etemplate, plot=False)
+        for order in range(49) :
+            order_template = template[order]
+            econtinuum = espectra["continuum_fluxes"][order]
+            ewl = etemplate[order]["wl"]
+            good_window = [[ewl[0],ewl[-1]]]
+            wl_out = template[order]["wl"]
+            continuum = interp_spectrum(wl_out, ewl, econtinuum, good_window, kind='cubic')
+            template[order]["flux"] /= continuum
+            template[order]["fluxerr"] /= continuum
+            template[order]["fluxerr_model"] /= continuum
+            for j in range(len(template[order]["flux_arr"])) :
+                template[order]["flux_arr"][j] /= continuum
+                template[order]["flux_residuals"][j] /= continuum
+    else :
+        spectra, template = normalize_spectra(spectra, template, fluxkey=fluxkey, fluxerrkey=fluxerrkey, plot=False)
+
+    if verbose :
+        print("******************************")
+        print("STEP: calculating weigths (1/sig^2) ...")
+        print("******************************")
+
+    if efits_ok :
+        espectra = calculate_weights(espectra, etemplate, use_err_model=False, plot=False)
+        spectra["weights"] = espectra["weights"]
+    else :
+        spectra = calculate_weights(spectra, template, use_err_model=False, plot=False)
+
+    # Start dealing with CCF related parameters and construction of a weighted mask
+    # load science CCF parameters
+    ccf_params = ccf_lib.set_ccf_params(ccf_mask)
+
+    # update ccf width with input value
+    ccf_params["CCF_WIDTH"] = float(ccf_width)
+
+    templ_fluxes, templ_efluxes, templ_tellfluxes = [], [], []
+    templ_fluxerrs, templ_efluxerrs, templ_tellfluxerrs = [], [], []
+    templ_wave, templ_ewave, templ_tellwave = [], [], []
+    for order in range(49) :
+        order_template = template[order]
+        templ_fluxes.append(order_template["flux"])
+        templ_fluxerrs.append(order_template["fluxerr"])
+        templ_wave.append(order_template["wl"])
+
+        if telluric_rv :
+            order_telltemplate = telluric_template[order]
+            templ_tellfluxes.append(order_telltemplate["flux"])
+            templ_tellfluxerrs.append(order_telltemplate["fluxerr"])
+            templ_tellwave.append(order_telltemplate["wl"])
+
+        if efits_ok :
+            order_etemplate = etemplate[order]
+            templ_efluxes.append(order_etemplate["flux"])
+            templ_efluxerrs.append(order_etemplate["fluxerr"])
+            templ_ewave.append(order_etemplate["wl"])
+
+    templ_fluxes = np.array(templ_fluxes, dtype=float)
+    templ_fluxerrs = np.array(templ_fluxerrs, dtype=float)
+    templ_tellfluxes = np.array(templ_tellfluxes, dtype=float)
+    templ_tellfluxerrs = np.array(templ_tellfluxerrs, dtype=float)
+    templ_efluxes = np.array(templ_efluxes, dtype=float)
+    templ_efluxerrs = np.array(templ_efluxerrs, dtype=float)
+    templ_wave = np.array(templ_wave, dtype=float)
+    templ_tellwave = np.array(templ_tellwave, dtype=float)
+    templ_ewave = np.array(templ_ewave, dtype=float)
+
+    # run ccf on template
+    if efits_ok :
+        ccfmask = ccf_lib.apply_weights_to_ccf_mask(ccf_params, templ_ewave, templ_efluxes, templ_efluxerrs, spectra["weights"], median=True, remove_lines_with_nans=True, source_rv=source_rv, verbose=verbose)
+    else :
+        ccfmask = ccf_lib.apply_weights_to_ccf_mask(ccf_params, templ_wave, templ_fluxes, templ_fluxerrs, spectra["weights"], median=True, remove_lines_with_nans=True, source_rv=source_rv, verbose=verbose)
+
+    order_subset_for_mean_ccf = [2, 3, 4, 5, 6, 7, 8, 9, 15, 16, 17, 18, 19, 20, 28, 29, 30, 31, 32, 33, 34, 35, 36, 40, 41, 42, 43, 44, 45, 46]
+    base_header = deepcopy(array_of_spectra["spectra"][0]["header"])
+    template_ccf = ccf_lib.run_ccf_eder(ccf_params, templ_wave, templ_fluxes, base_header, ccfmask, rv_drifts={}, targetrv=source_rv, valid_orders=order_subset_for_mean_ccf, normalize_ccfs=True, output=False, plot=False, verbose=False)
+
+    if output_template != "" :
+        if verbose :
+            print("Saving template spectrum to file: {0} ".format(output_template))
+        spectrumlib.write_spectrum_orders_to_fits(templ_wave, templ_fluxes, templ_fluxerrs, output_template, header=template_ccf["header"])
+
+    source_rv = template_ccf["header"]['RV_OBJ']
+    ccf_params["SOURCE_RV"] = source_rv
+    ccf_params["CCF_WIDTH"] = 8 * template_ccf["header"]['CCFMFWHM']
+    
+    # Set path and filename for output template
+
+    if verbose :
+        print("Applying weights to stellar CCF mask ...")
+
+    if efits_ok :
+        ccfmask = ccf_lib.apply_weights_to_ccf_mask(ccf_params, templ_ewave, templ_efluxes, templ_efluxerrs, espectra["weights"], median=True, remove_lines_with_nans=True, source_rv=source_rv, verbose=verbose)
+    else :
+        ccfmask = ccf_lib.apply_weights_to_ccf_mask(ccf_params, templ_wave, templ_fluxes, templ_fluxerrs, spectra["weights"], median=True, remove_lines_with_nans=True, source_rv=source_rv, verbose=verbose)
+
+    if telluric_rv and h2o_mask != "" :
+        if verbose :
+            print("Applying weights to H2O CCF mask ...")
+        h2o_ccf_params = ccf_lib.set_ccf_params(h2o_mask)
+        h2o_ccf_params["CCF_WIDTH"] = float(ccf_width)
+        if efits_ok :
+            h2o_ccfmask = ccf_lib.apply_weights_to_ccf_mask(h2o_ccf_params, templ_tellwave, templ_tellfluxes, templ_tellfluxerrs, espectra["weights"], median=False, verbose=verbose)
+        else :
+            h2o_ccfmask = ccf_lib.apply_weights_to_ccf_mask(h2o_ccf_params, templ_tellwave, templ_tellfluxes, templ_tellfluxerrs, np.full_like(templ_tellfluxes,1.0), median=False, verbose=verbose)
+
+    if telluric_rv and tel_mask != "" :
+        if verbose :
+            print("Applying weights to telluric CCF mask ...")
+        #tell_ccf_params = ccf_lib.set_ccf_params(h2o_mask, telluric_masks=[tel_mask])
+        tell_ccf_params = ccf_lib.set_ccf_params(tel_mask)
+        tell_ccf_params["CCF_WIDTH"] = float(ccf_width)
+
+        if efits_ok :
+            tell_ccfmask = ccf_lib.apply_weights_to_ccf_mask(tell_ccf_params, templ_tellwave, templ_tellfluxes, templ_tellfluxerrs, espectra["weights"], median=False, verbose=verbose)
+        else :
+            tell_ccfmask = ccf_lib.apply_weights_to_ccf_mask(tell_ccf_params, templ_tellwave, templ_tellfluxes, templ_tellfluxerrs, np.full_like(templ_tellfluxes,1.0), median=False, verbose=verbose)
+
+    loc = {}
+    loc["efits_ok"] = efits_ok
+    loc["telluric_rv"] = telluric_rv
+
+    loc["array_of_spectra"] = array_of_spectra
+    loc["spectra"] = spectra
+    loc["template"] = template
+
+    loc["array_of_espectra"] = array_of_espectra
+    loc["espectra"] = espectra
+    loc["etemplate"] = etemplate
+    
+    loc["telluric_template"] = telluric_template
+
+    #loc["templ_fluxes"] = templ_fluxes
+    #loc["templ_efluxes"] = templ_efluxes
+    #loc["templ_tellfluxes"] = templ_tellfluxes
+
+    loc["ccf_params"] = ccf_params
+    loc["ccfmask"] = ccfmask
+    
+    if telluric_rv :
+        loc["tell_ccfmask"] = tell_ccfmask
+        loc["tell_ccf_params"] = tell_ccf_params
+        loc["h2o_ccfmask"] = h2o_ccfmask
+        loc["h2o_ccf_params"] = h2o_ccf_params
+    else :
+        loc["tell_ccfmask"] = None
+        loc["tell_ccf_params"] = None
+        loc["h2o_ccfmask"] = None
+        loc["h2o_ccf_params"] = None
+
+    loc["fluxkey"], loc["fluxerrkey"] = fluxkey, fluxerrkey
+    loc["waveskey"], loc["wavekey"] =  waveskey, wavekey
 
     return loc
