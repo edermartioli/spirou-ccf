@@ -285,10 +285,10 @@ inputdata = sorted(glob.glob(options.input))
 if options.stack :
     if options.polar_sequence :
         polar_sets = spiroulib.generate_polar_sets(inputdata, verbose=options.verbose)
-        inputdata = spiroulib.stack_polar_sequence(polar_sets, overwrite=options.overwrite)
+        inputdata = spiroulib.stack_polar_sequence(polar_sets, overwrite=True)
     else :
-        epoch_sets = spiroulib.generate_epoch_sets(inputdata, maxdt=0.5, verbose=options.verbose)
-        inputdata = spiroulib.stack_polar_sequence(epoch_sets, overwrite=options.overwrite)
+        epoch_sets = spiroulib.generate_epoch_sets(inputdata, maxdt=options.epoch_max_dt, verbose=options.verbose)
+        inputdata = spiroulib.stack_polar_sequence(epoch_sets, overwrite=True)
 
 if len(inputdata) <=1 :
     print("ERROR: the input data must be larger than 1 spectrum. If running a polarimetric sequence you may remove the option -s. Exiting ...")
