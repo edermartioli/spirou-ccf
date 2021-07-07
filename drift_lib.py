@@ -25,11 +25,7 @@ from scipy.optimize import curve_fit
 from scipy import ndimage
 from copy import deepcopy
 
-from celerite.modeling import Model
 from scipy.optimize import minimize
-import celerite
-from celerite import terms
-
 
 def get_rv_drifts(inputdata, drift_repository, correct_drift=True, use_linear_drift=True, verbose=False) :
     
@@ -48,7 +44,7 @@ def get_rv_drifts(inputdata, drift_repository, correct_drift=True, use_linear_dr
         
         if verbose:
             print("Calculating RV drifts between wave sol and sim. FP CCF ... ")
-        drifts, drifts_err = calculate_ccf_drifts(drift_repository, jds, obsdates, use_linear_drift=use_linear_drift, plot=False, verbose=verbose)
+        drifts, drifts_err = calculate_ccf_drifts(drift_repository, jds, obsdates, use_linear_drift=use_linear_drift, plot=True, verbose=verbose)
     else :
         drifts, drifts_err = np.zeros(len(inputdata)), np.zeros(len(inputdata))
     
@@ -90,7 +86,7 @@ def calculate_ccf_drifts(drift_repository, jds, obsdates, use_linear_drift=True,
 
 
 def calculate_drifts(filename, jds, night='', median_filter=False, use_linear_drift=True, plot=False, verbose=False) :
-
+    
     if not os.path.exists(filename) :
         print("WARNING: inexistent drift file: {} -> setting all drifts to zero".format(filename))
         return np.zeros_like(jds), np.zeros_like(jds)
@@ -193,6 +189,52 @@ def calculate_drifts(filename, jds, night='', median_filter=False, use_linear_dr
         preddrifts = jds * drift_slope + drift_intercept - rv0
         predstd = np.full_like(jds, np.nanmean(crverrs))
     else :
+
+        import celerite
+        from celerite import terms
+        from celerite.modeling import Model
+
+        # Define the model
+        class MeanModel(Model):
+            parameter_names = ("alpha", "ell", "log_sigma2")
+    
+            def get_value(self, t):
+                return self.alpha * np.exp(-0.5*(t-self.ell)**2 * np.exp(-self.log_sigma2))
+    
+            # This method is optional but it can be used to compute the gradient of the
+            # cost function below.
+            def compute_gradient(self, t):
+                e = 0.5*(t-self.ell)**2 * np.exp(-self.log_sigma2)
+                dalpha = np.exp(-e)
+                dell = self.alpha * dalpha * (t-self.ell) * np.exp(-self.log_sigma2)
+                dlog_s2 = self.alpha * dalpha * e
+                return np.array([dalpha, dell, dlog_s2])
+
+        # Define a cost function
+        def neg_log_like(params, y, gp):
+            gp.set_parameter_vector(params)
+            return -gp.log_likelihood(y)
+
+        def grad_neg_log_like(params, y, gp):
+            gp.set_parameter_vector(params)
+            return -gp.grad_log_likelihood(y)[1]
+
+        def gp_calib_fit_model(cbjds, crvs, crverrs) :
+            # Set up the GP model
+            kernel = terms.RealTerm(log_a=np.log(np.var(crvs)), log_c=-np.log(10.0))
+            mean_model = MeanModel(alpha=-1.0, ell=0.1, log_sigma2=np.log(0.4))
+            gp = celerite.GP(kernel, mean=mean_model, fit_mean=True)
+            gp.compute(cbjds, crverrs)
+            #   print("Initial log-likelihood: {0}".format(gp.log_likelihood(crvs)))
+    
+            # Fit for the maximum likelihood parameters
+            initial_params = gp.get_parameter_vector()
+            bounds = gp.get_parameter_bounds()
+            soln = minimize(neg_log_like, initial_params, jac=grad_neg_log_like, method="L-BFGS-B",bounds=bounds, args=(crvs, gp))
+            gp.set_parameter_vector(soln.x)
+            #print("Final log-likelihood: {0}".format(-soln.fun))
+            return gp
+
         if median_filter:
             med_filter_size = int(np.floor(len(cbjds)/10))
             crvs = ndimage.median_filter(crvs, size=med_filter_size)
@@ -243,56 +285,3 @@ def get_nights_observed(allobsdates) :
 def get_drift_file(drift_repository, night) :
     filename = "{0}/{1}_fiber_C_ccf_rv.rdb".format(drift_repository,night)
     return filename
-
-
-#################################
-#### The GP stuff starts here ###
-#################################
-
-# Define the model
-class MeanModel(Model):
-    parameter_names = ("alpha", "ell", "log_sigma2")
-    
-    def get_value(self, t):
-        return self.alpha * np.exp(-0.5*(t-self.ell)**2 * np.exp(-self.log_sigma2))
-    
-    # This method is optional but it can be used to compute the gradient of the
-    # cost function below.
-    def compute_gradient(self, t):
-        e = 0.5*(t-self.ell)**2 * np.exp(-self.log_sigma2)
-        dalpha = np.exp(-e)
-        dell = self.alpha * dalpha * (t-self.ell) * np.exp(-self.log_sigma2)
-        dlog_s2 = self.alpha * dalpha * e
-        return np.array([dalpha, dell, dlog_s2])
-
-# Define a cost function
-def neg_log_like(params, y, gp):
-    gp.set_parameter_vector(params)
-    return -gp.log_likelihood(y)
-
-def grad_neg_log_like(params, y, gp):
-    gp.set_parameter_vector(params)
-    return -gp.grad_log_likelihood(y)[1]
-
-
-def gp_calib_fit_model(cbjds, crvs, crverrs) :
-    # Set up the GP model
-    kernel = terms.RealTerm(log_a=np.log(np.var(crvs)), log_c=-np.log(10.0))
-    mean_model = MeanModel(alpha=-1.0, ell=0.1, log_sigma2=np.log(0.4))
-    gp = celerite.GP(kernel, mean=mean_model, fit_mean=True)
-    gp.compute(cbjds, crverrs)
-    #print("Initial log-likelihood: {0}".format(gp.log_likelihood(crvs)))
-    
-    # Fit for the maximum likelihood parameters
-    initial_params = gp.get_parameter_vector()
-    bounds = gp.get_parameter_bounds()
-    soln = minimize(neg_log_like, initial_params, jac=grad_neg_log_like,
-                    method="L-BFGS-B", bounds=bounds, args=(crvs, gp))
-    gp.set_parameter_vector(soln.x)
-    #print("Final log-likelihood: {0}".format(-soln.fun))
-    return gp
-
-########################
-#### End of GP stuff ###
-########################
-
