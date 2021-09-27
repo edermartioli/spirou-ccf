@@ -13,11 +13,17 @@
     
     python ~/spirou-tools/spirou-ccf/spirou_ccf_pipeline.py --input=2??????t.fits -pvs
     
-     python ~/spirou-tools/spirou-ccf/spirou_ccf_pipeline.py --input=2*t.fits --ccf_mask=/Users/eder/spirou-tools/spirou-ccf/ccf_masks/montreal_masks/Gl725B_neg_depth.mas --source_rv=-34.4 --ccf_width=60 -vp
+    python ~/spirou-tools/spirou-ccf/spirou_ccf_pipeline.py --input=2*t.fits --ccf_mask=/Users/eder/spirou-tools/spirou-ccf/ccf_masks/montreal_masks/Gl725B_neg_depth.mas --source_rv=-34.4 --ccf_width=60 -vp
     
     Test using small dataset
     python python ~/spirou-tools/spirou-ccf/spirou_ccf_pipeline.py --input=250528?t.fits --ccf_mask=/Users/eder/spirou-tools/spirou-ccf/ccf_masks/montreal_masks/Gl725B_neg_depth.mas --source_rv=-34.4 --ccf_width=60 -v
     
+    Example using e2dsff_C.fits files to calculate the drifts
+    python ~/spirou-tools/spirou-ccf/spirou_ccf_pipeline.py --input=2??????t.fits --input_fp_fiberC=2??????o_pp_e2dsff_C.fits -pvd
+    
+    Example using an existing fiber C drift rdb data file to calculate the drifts
+    python ~/spirou-tools/spirou-ccf/spirou_ccf_pipeline.py --input=2??????t.fits --sci_drift_data=TOI-1759_FiberC__smart_fp_mask.mas__False__0.6.132__YJHK_fpdrift.rdb -pvd
+
     """
 
 __version__ = "1.0"
@@ -46,9 +52,9 @@ fp_mask = os.path.join(mask_repository,'fp.mas')
 h2o_mask = os.path.join(telluric_mask_repository,'trans_h2o_abso_ccf.mas')
 tel_mask = os.path.join(telluric_mask_repository,'trans_others_abso_ccf.mas')
 drift_repository = os.path.join(spirou_ccf_dir,'drifts/')
+fp_mask = os.path.join(spirou_ccf_dir,'ccf_masks/montreal_masks/smart_fp_mask.mas')
 
-
-def run_spirou_ccf(inputdata, ccf_mask, drifts, telluric_rv=False, use_efits=False, normalize_ccfs=True, save_output=True, source_rv=0., ccf_width=100, vel_sampling=1.8, run_analysis=True, output_template="", verbose=False, plot=False) :
+def run_spirou_ccf(inputdata, ccf_mask, drifts, telluric_rv=False, use_efits=False, normalize_ccfs=True, save_output=True, source_rv=0., ccf_width=100, vel_sampling=1.8, run_analysis=True, output_template="", interp_with_gp=False, verbose=False, plot=False) :
     """
         Description: wrapper function to run an optimal CCF analysis of a time series of SPIRou spectra.
         This function run the following steps:
@@ -57,7 +63,7 @@ def run_spirou_ccf(inputdata, ccf_mask, drifts, telluric_rv=False, use_efits=Fal
         3. Calculate the CCF for each reduced spectrum in the time series (including star, and tellurics)
         4. Run the CCF template matching analysis on the CCF time series data.
         """
-    reduced = reduc_lib.reduce_timeseries_of_spectra(inputdata, ccf_mask, rvfile="", use_efits=use_efits, fix_gaps=False, max_gap_size=5.0, nsig_clip=3.0, align_spectra=True, vel_sampling=vel_sampling, min_window_size=float(ccf_width), tel_mask=tel_mask, h2o_mask=h2o_mask, telluric_rv=telluric_rv, ccf_width=ccf_width, source_rv=source_rv, output_template=output_template, verbose=verbose)
+    reduced = reduc_lib.reduce_timeseries_of_spectra(inputdata, ccf_mask, rvfile="", use_efits=use_efits, fix_gaps=False, max_gap_size=8.0, nsig_clip=4.0, align_spectra=True, vel_sampling=vel_sampling, min_window_size=float(ccf_width), tel_mask=tel_mask, h2o_mask=h2o_mask, telluric_rv=telluric_rv, ccf_width=ccf_width, source_rv=source_rv, output_template=output_template, interp_with_gp=interp_with_gp, verbose=verbose)
     
     fluxkey, fluxerrkey = reduced["fluxkey"], reduced["fluxerrkey"]
     waveskey, wavekey = reduced["waveskey"], reduced["wavekey"]
@@ -194,7 +200,8 @@ def run_spirou_ccf(inputdata, ccf_mask, drifts, telluric_rv=False, use_efits=Fal
             plt.plot(sci_ccf['RV_CCF'], sci_ccf['MEAN_CCF'], "-", color='#2ca02c', alpha=0.5, label=scilegend, zorder=1)
 
     mean_fwhm = np.array(mean_fwhm)
-    
+    velocity_window = 1.5*np.nanmedian(mean_fwhm)
+
     if telluric_rv :
         mean_tell_fwhm = np.array(mean_tell_fwhm)
         mean_h2o_fwhm = np.array(mean_h2o_fwhm)
@@ -230,6 +237,9 @@ def run_spirou_ccf(inputdata, ccf_mask, drifts, telluric_rv=False, use_efits=Fal
         plt.show()
 
     if run_analysis :
+        if verbose :
+            print("Running CCF analysis: velocity_window = {0:.3f} km/s".format(velocity_window))
+        
         # exclude orders with strong telluric absorption
         exclude_orders = [-1]  # to include all orders
         #exclude_orders = [11,12,22,23,24,25,26,27,37,38,39,40,47,48]
@@ -237,24 +247,31 @@ def run_spirou_ccf(inputdata, ccf_mask, drifts, telluric_rv=False, use_efits=Fal
         obj = sci_ccf["header"]["OBJECT"].replace(" ","")
         drs_version = sci_ccf["header"]['VERSION']
 
-        ccf2rv.run_ccf_analysis(sci_ccf_file_list, ccf_mask, obj=obj, drs_version=drs_version, snr_min=10., velocity_window=1.5*np.nanmedian(mean_fwhm), dvmax_per_order=vel_sampling, sanit=False, correct_rv_drift=True, save_ccf_fitsfile=False, exclude_orders = exclude_orders, plot=False, verbose=options.verbose)
+        ccf2rv.run_ccf_analysis(sci_ccf_file_list, ccf_mask, obj=obj, drs_version=drs_version, snr_min=10., velocity_window=velocity_window, dvmax_per_order=vel_sampling, sanit=False, correct_rv_drift=True, save_ccf_fitsfile=True, exclude_orders = exclude_orders, plot=False, verbose=options.verbose)
 
         if telluric_rv :
-            ccf2rv.run_ccf_analysis(tell_ccf_file_list, tel_mask, obj=obj, drs_version=drs_version, snr_min=10.,velocity_window=1.5*np.nanmedian(mean_tell_fwhm), dvmax_per_order=vel_sampling, sanit=False, correct_rv_drift=False, save_ccf_fitsfile=False, plot=False, verbose=options.verbose)
-            ccf2rv.run_ccf_analysis(h2o_ccf_file_list, h2o_mask, obj=obj, drs_version=drs_version, snr_min=10.,velocity_window=1.5*np.nanmedian(mean_h2o_fwhm), dvmax_per_order=vel_sampling, sanit=False, correct_rv_drift=False, save_ccf_fitsfile=False, plot=False, verbose=options.verbose)
+            tell_velocity_window = 1.5*np.nanmedian(mean_tell_fwhm)
+            ccf2rv.run_ccf_analysis(tell_ccf_file_list, tel_mask, obj=obj, drs_version=drs_version, snr_min=10.,velocity_window=tell_velocity_window, dvmax_per_order=vel_sampling, sanit=False, correct_rv_drift=False, save_ccf_fitsfile=False, plot=False, verbose=options.verbose)
+            
+            h2o_velocity_window = 1.5*np.nanmedian(mean_h2o_fwhm)
+            ccf2rv.run_ccf_analysis(h2o_ccf_file_list, h2o_mask, obj=obj, drs_version=drs_version, snr_min=10.,velocity_window=h2o_velocity_window, dvmax_per_order=vel_sampling, sanit=False, correct_rv_drift=False, save_ccf_fitsfile=False, plot=False, verbose=options.verbose)
 #-- end of spirou_ccf routine
 
 parser = OptionParser()
 parser.add_option("-i", "--input", dest="input", help="Spectral *t.fits data pattern",type='string',default="*t.fits")
-parser.add_option("-c", "--ccf_mask", dest="ccf_mask", help="Input CCF mask",type='string',default="")
-parser.add_option("-m", "--output_template", dest="output_template", help="Output template spectrum",type='string',default="")
+parser.add_option("-c", "--input_fp_fiberC", dest="input_fp_fiberC", help="FP fiber C e2ds data pattern",type='string',default="")
+parser.add_option("-m", "--ccf_mask", dest="ccf_mask", help="Input CCF mask",type='string',default="")
+parser.add_option("-o", "--output_template", dest="output_template", help="Output template spectrum",type='string',default="")
+parser.add_option("-n", "--sci_drift_data", dest="sci_drift_data", help="Input rdb file containing drift data from FP fiber C science frames",type='string',default="")
+parser.add_option("-y", "--cal_drift_data", dest="cal_drift_data", help="Input rdb file containing drift data from FP+FP calibrations",type='string',default="")
 parser.add_option("-r", "--source_rv", dest="source_rv", help="Input source RV (km/s)",type='float',default=0.)
 parser.add_option("-w", "--ccf_width", dest="ccf_width", help="CCF half width (km/s)",type='string',default="150")
-parser.add_option("-g", "--vel_sampling", dest="vel_sampling", help="Velocity sampling for the template spectrum (km/s)",type='float',default=1.8)
+parser.add_option("-a", "--vel_sampling", dest="vel_sampling", help="Velocity sampling for the template spectrum (km/s)",type='float',default=1.8)
 parser.add_option("-f", "--epoch_max_dt", dest="epoch_max_dt", help="Maximum time difference to stack sequence (days)",type='float',default=0.5)
 parser.add_option("-e", action="store_true", dest="use_efits", help="Use e.fits data (saved in the same directory as t.fits)", default=False)
 parser.add_option("-s", action="store_true", dest="stack", help="Stack sequence (polar or epoch)", default=False)
 parser.add_option("-l", action="store_true", dest="polar_sequence", help="Force stack of a polar sequence", default=False)
+parser.add_option("-g", action="store_true", dest="interp_with_gp", help="Interpolate spectra using GP", default=False)
 parser.add_option("-t", action="store_true", dest="telluric_ccf", help="Run telluric CCF", default=False)
 parser.add_option("-d", action="store_true", dest="correct_drift", help="correct RV drift", default=False)
 parser.add_option("-p", action="store_true", dest="plot", help="plot", default=False)
@@ -272,23 +289,80 @@ if options.verbose:
         print('Input CCF mask: ', options.ccf_mask)
     if options.output_template != "":
         print('Output template spectrum: ', options.output_template)
-    print('Input source RV (km/s): ', options.source_rv)
-    print('CCF width (km/s): ', options.ccf_width)
+    if options.sci_drift_data != "":
+        print('Input rdb file containing drift data from FP fiber C science frames: ', options.sci_drift_data)
+    if options.cal_drift_data != "":
+        print('Input rdb file containing drift data from FP+FP calibrations: ', options.cal_drift_data)
+    if options.source_rv != 0 :
+        print('Input source RV (km/s): ', options.source_rv)
+    print('Initial CCF width (km/s): ', options.ccf_width)
     print('Velocity sampling (km/s): ', options.vel_sampling)
-    print('Maximum time difference to stack sequence (days): ', options.epoch_max_dt)
+    if options.stack :
+        print('Maximum time difference to stack sequence (days): ', options.epoch_max_dt)
 
 # make list of tfits data files
 if options.verbose:
     print("Creating list of t.fits spectrum files...")
 inputdata = sorted(glob.glob(options.input))
 
+if options.correct_drift :
+    # If input pattern for fiber C data is not provided, try to figure it out
+    if options.input_fp_fiberC == "" :
+        options.input_fp_fiberC = (options.input).replace("t.fits","o_pp_e2dsff_C.fits")
+    if options.verbose :
+        print('FP fiber C e2ds data pattern: ', options.input_fp_fiberC)
+    # make list of e2ds FP data files
+    if options.verbose:
+        print("Creating list of FP fiber C e2ds spectrum files...")
+    inputfpdata = sorted(glob.glob(options.input_fp_fiberC))
+
+
 if options.stack :
     if options.polar_sequence :
         polar_sets = spiroulib.generate_polar_sets(inputdata, verbose=options.verbose)
         inputdata = spiroulib.stack_polar_sequence(polar_sets, overwrite=True)
+        # E. Martioli Sep 20, 2021 -> we need a function spiroulib.stack_e2ds_polar_sequence to stack
+        # e2ds files from fiber C data so we can use the drift measure from the stack. It is currently
+        # using the drift calculated from the base image in the sequence, which should be ok.
+        #if len(inputfpdata) :
+        #    fppolar_sets = spiroulib.generate_polar_sets(inputfpdata, verbose=options.verbose)
+        #    inputfpdata = spiroulib.stack_e2ds_polar_sequence(fppolar_sets, overwrite=True)
     else :
         epoch_sets = spiroulib.generate_epoch_sets(inputdata, maxdt=options.epoch_max_dt, verbose=options.verbose)
         inputdata = spiroulib.stack_polar_sequence(epoch_sets, overwrite=True)
+        #if len(inputfpdata) :
+        #    fpepoch_sets = spiroulib.generate_epoch_sets(inputfpdata, maxdt=options.epoch_max_dt, verbose=options.verbose)
+        #    inputfpdata = spiroulib.stack_e2ds_polar_sequence(fpepoch_sets, overwrite=True)
+
+# Initialize drift containers with zeros
+drifts = drift_lib.get_zero_drift_containers(inputdata)
+# Initialize drift containers with values from header (calculated by APERO)
+#drifts = drift_lib.get_rv_drifts(inputdata)
+
+
+if options.correct_drift :
+    # Figure out drifts from either an input file or from e2ds fiberC data
+    sci_fp_rv_file = options.sci_drift_data
+    cal_fp_rv_file = options.cal_drift_data
+
+    # If input fp data is different than
+    if len(inputfpdata) != len(inputdata) :
+        print("WARNING: Length of input fp data = {} is different than the length of input spectra = {}.".format(len(inputfpdata),len(inputdata)))
+
+    if sci_fp_rv_file == "" and len(inputfpdata) :
+        # Run CCF analysis on sci fiber C data
+        sci_fp_rv_file = reduc_lib.run_spirou_fp_ccf(inputfpdata, fp_mask, ccf_width=9.0, nsig_clip=4, vel_sampling=options.vel_sampling, align_spectra=True, save_output=True, plot=options.plot, verbose=options.verbose)
+
+    if cal_fp_rv_file == "" :
+        # back up to an existing file in the drift repository
+        cal_fp_rv_file = drift_repository + "CALIBRATION_FiberC__smart_fp_mask.mas__False__0.6.132__YJHK_fpdrift_MTL.rdb"
+
+    if sci_fp_rv_file != "" and cal_fp_rv_file != "" :
+        if options.verbose :
+            print("Science drift data file: ",sci_fp_rv_file)
+            print("Calibration drift data file: ",cal_fp_rv_file)
+        # Sci and cal drift files exists then we calculate drifts and feed them into the drift containers
+        drifts = drift_lib.calculate_drifts_from_Cfiber_CCFRVs(sci_fp_rv_file, cal_fp_rv_file, subtract_median=True, output="", drifts=drifts, plot=options.plot, verbose=options.verbose)
 
 if len(inputdata) <=1 :
     print("ERROR: the input data must be larger than 1 spectrum. If running a polarimetric sequence you may remove the option -s. Exiting ...")
@@ -303,6 +377,4 @@ if options.ccf_mask == "" :
 else :
     ccf_mask = options.ccf_mask
 
-drifts = drift_lib.get_rv_drifts(inputdata, drift_repository, correct_drift=options.correct_drift, use_linear_drift=True, verbose=options.verbose)
-
-run_spirou_ccf(inputdata, ccf_mask, drifts, telluric_rv=options.telluric_ccf, use_efits=options.use_efits, normalize_ccfs=True, save_output=True, source_rv=options.source_rv, ccf_width=options.ccf_width, vel_sampling=options.vel_sampling, run_analysis=True, output_template=options.output_template, verbose=options.verbose, plot=options.plot)
+run_spirou_ccf(inputdata, ccf_mask, drifts, telluric_rv=options.telluric_ccf, use_efits=options.use_efits, normalize_ccfs=True, save_output=True, source_rv=options.source_rv, ccf_width=options.ccf_width, vel_sampling=options.vel_sampling, run_analysis=True, output_template=options.output_template, interp_with_gp=options.interp_with_gp, verbose=options.verbose, plot=options.plot)

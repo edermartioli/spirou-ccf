@@ -1456,7 +1456,7 @@ def write_spectrum_orders_to_fits(waves, fluxes, fluxerrs, filename, header=None
     if header is None :
         header = fits.Header()
     header.set('ORIGIN', "spirou-tools")
-    header.set('UTCSAVED', time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()))
+    #header.set('UTCSAVED', time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()))
 
     maxlen = 0
     for order in range(49) :

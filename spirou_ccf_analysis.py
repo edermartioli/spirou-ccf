@@ -11,6 +11,9 @@
     Simple usage example:
     
     python ~/spirou-tools/spirou-ccf/spirou_ccf_analysis.py --pattern=CCFTABLE*.fits --bandpass="YJHK" --min_snr=20 -pv
+    
+    -> to run CCF analysis on FP data:
+    python ~/spirou-tools/spirou-ccf/spirou_ccf_analysis.py --pattern=CCFTABLE*.fits --bandpass="YJHK" --min_snr=20 -pvc --velocity_window=3.5
     """
 
 __version__ = "1.0"

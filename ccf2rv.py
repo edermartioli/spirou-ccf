@@ -26,10 +26,11 @@ import warnings
 from astropy.time import Time
 from collections import Counter
 from astropy.io import ascii
+import gp_lib
 
 from astropy.convolution import Gaussian2DKernel, interpolate_replace_nans
 
-def run_ccf_analysis(ccf_files, mask_file, obj="", drs_version="", snr_min=20., dvmax_per_order=3.0, sanit=False, correct_rv_drift=False, save_ccf_fitsfile=False, exclude_orders = [-1], velocity_window=10., outdir="", plot=False, verbose=False) :
+def run_ccf_analysis(ccf_files, mask_file, obj="", drs_version="", snr_min=20., dvmax_per_order=3.0, sanit=False, correct_rv_drift=False, save_ccf_fitsfile=False, exclude_orders = [-1], velocity_window=10., fpccf=False, outdir="", detailed_output=True, plot=False, verbose=False) :
     
     """
         Description: a wrapper to run the CCF template matching analysis
@@ -53,7 +54,7 @@ def run_ccf_analysis(ccf_files, mask_file, obj="", drs_version="", snr_min=20., 
     # form a unique batch name with mask, object and method
     batch_name = '{0}/{1}__{2}'.format(outdir, collection_key, bandpass)
 
-    ccf = get_object_rv(ccf_files, collection_key=collection_key, method="all", exclude_orders=exclude_orders, snr_min=snr_min, bandpass=bandpass,velocity_window=velocity_window, dvmax_per_order=dvmax_per_order, save_rdb_timeseries=True, correct_rv_drift=correct_rv_drift, save_csv_table_of_results=True, save_ccf_cube=False, save_weight_table=False, doplot=plot, showplots=plot, save_ccf_fitsfile=save_ccf_fitsfile, saveplots=plot, detailed_output=True, verbose=verbose)
+    ccf = get_object_rv(ccf_files, collection_key=collection_key, method="all", exclude_orders=exclude_orders, snr_min=snr_min, bandpass=bandpass,velocity_window=velocity_window, dvmax_per_order=dvmax_per_order, save_rdb_timeseries=True, correct_rv_drift=correct_rv_drift, save_csv_table_of_results=True, save_ccf_cube=False, save_weight_table=False, doplot=plot, showplots=plot, save_ccf_fitsfile=save_ccf_fitsfile, saveplots=plot, detailed_output=detailed_output, verbose=verbose, fpccf=fpccf)
 
     return ccf
     ##########################
@@ -134,7 +135,7 @@ def get_object_rv(ccf_files,
     ccf_cube, ccf_tbl, ccf_RV = build_ccf_cube(ccf_files, batch_name, exclude_orders=exclude_orders, save_ccf_cube=save_ccf_cube, verbose=verbose, fpccf=fpccf)
 
     # keywords from file headers to be added to the CSV table.
-    keywords = ['MJDATE','BERV','BJD','RV_DRIFT','EXTSN035','AIRMASS','TLPEH2O','TLPEOTR','RV_WAVFP','RV_SIMFP','DATE', 'MJDMID','DATE-OBS','EXPTIME','EXPNUM','MJDEND','SBCDEN_P','EXPTYPE']
+    keywords = ['MJDATE','BERV','BJD','RV_DRIFT','EXTSN035','AIRMASS','TLPEH2O','TLPEOTR','RV_WAVFP','RV_SIMFP','DATE', 'MJDMID','DATE-OBS','EXPTIME','EXPNUM','MJDEND','SBCDEN_P','EXPTYPE','FILENAME','FIBER','WAVETIME']
     # set output csv table
     tbl = set_output_table(ccf_files, keywords)
 
@@ -144,7 +145,7 @@ def get_object_rv(ccf_files,
     # calculate the median CCF for all epochs for 49 orders
     with warnings.catch_warnings(record=True) as _:
         # some slices in the sum are NaNs, that's OK
-        med_ccf =  np.nanmedian(ccf_cube,axis = 2)
+        med_ccf = np.nanmedian(ccf_cube , axis = 2)
 
     # exclude orders full of NaNs
     exclude_orders = exclude_orders_full_of_nans(exclude_orders, med_ccf, verbose=verbose)
@@ -158,8 +159,13 @@ def get_object_rv(ccf_files,
     # find minimum for CCF. This is used to fit a gaussian to each order and force velocity to zero
     id_min = np.nanargmin(np.nanmedian(med_ccf,axis=0))
 
+    nsigcut=4
+    maxfrac_of_spectra_to_keep_order=0.5
+    if fpccf :
+        nsigcut=20
+
     # measure CCF weights
-    weights = measure_ccf_weights(ccf_cube, ccf_files, med_ccf, ccf_RV, id_min, velocity_window, nsigcut=4, maxfrac_of_spectra_to_keep_order = 0.5, exclude_orders=exclude_orders,  batch_name=batch_name, weight_table=weight_table, weight_type=weight_type, obj=object, mask=mask, save_weight_table=save_weight_table, doplot=doplot, saveplots=saveplots, showplots=showplots, verbose=verbose)
+    weights = measure_ccf_weights(ccf_cube, ccf_files, med_ccf, ccf_RV, id_min, velocity_window, nsigcut=nsigcut, maxfrac_of_spectra_to_keep_order=maxfrac_of_spectra_to_keep_order, exclude_orders=exclude_orders,  batch_name=batch_name, weight_table=weight_table, weight_type=weight_type, obj=object, mask=mask, save_weight_table=save_weight_table, doplot=doplot, saveplots=saveplots, showplots=showplots, verbose=verbose)
 
     if doplot:
         # plot median CCFs and residuals
@@ -187,7 +193,7 @@ def get_object_rv(ccf_files,
     #if method == "template" or method == "all":
     # measure RVs using template method
     tbl, med_corr_ccf, corr_ccf = run_template_method(tbl, ccf_files, ccf_RV, mean_ccf, id_min, velocity_window, doplot=doplot, showplots=showplots, verbose=verbose)
-    
+
     if doplot:
         plot_corr_ccf(ccf_files, ccf_RV, corr_ccf, batch_name, id_min, saveplots=saveplots, showplots=showplots)
 
@@ -201,10 +207,16 @@ def get_object_rv(ccf_files,
     # add a measurement of the STDDEV of each mean CCF relative to the median CCF after correcting for the measured velocity. If you are going to add 'methods', add them before this line
     med_corr_ccf, corr_ccf = add_stddev_to_ccf(ccf_files, tbl, ccf_RV, corr_ccf, id_min, doplot=False)
 
-    tbl = calculate_resid_ccf_projections(ccf_files, tbl, ccf_RV, med_corr_ccf, corr_ccf, id_min, velocity_window, pixel_size_in_kps=2.3)
+    pixel_size_in_kps = np.nanmedian(np.abs(ccf_RV[1:] - ccf_RV[:-1]))
+    
+    tbl = calculate_resid_ccf_projections(ccf_files, tbl, ccf_RV, med_corr_ccf, corr_ccf, id_min, velocity_window, pixel_size_in_kps=pixel_size_in_kps)
 
     if doplot :
         plot_residual_ccf(ccf_files, ccf_RV, med_corr_ccf, corr_ccf, batch_name, saveplots=saveplots, showplots=showplots)
+
+    #tbl = run_gp_gaussian_method(tbl, ccf_files, ccf_RV, corr_ccf, med_corr_ccf)
+    #if doplot:
+    #   plot_gaussian_method(tbl, batch_name, saveplots=saveplots, showplots=showplots)
 
     if save_ccf_fitsfile :
         output_ccf_fitsfile = '{0}.fits'.format(batch_name)
@@ -225,7 +237,10 @@ def get_object_rv(ccf_files,
     if fpccf :
         if save_rdb_timeseries :
             fp_rdb_output = '{0}_fpdrift.rdb'.format(batch_name)
+            if detailed_output:
+                dict_ccf['FP_RDB_OUTPUT'] = output_ccf_fitsfile
             save_drift_time_series_in_rdb_format(tbl, fp_rdb_output, rv_key='RV')
+
     else :
         if save_rdb_timeseries :
             if method == 'bisector' or method == 'all' :
@@ -805,9 +820,12 @@ def run_bisector_method(tbl, ccf_files, ccf_RV, mean_ccf, bis_min=0.3, bis_max=0
     tbl['BIS_SLOPE'] = np.zeros_like(ccf_files,dtype = float)  # bisector slope
     tbl['BIS_WIDTH'] = np.zeros_like(ccf_files,dtype = float)  # bisector width
     tbl['Vt'] = np.zeros_like(ccf_files,dtype = float)  # bisector velocity 'top' in perryman
+    tbl['Vt_ERR'] = np.zeros_like(ccf_files,dtype = float)  # bisector velocity 'top' in perryman
     tbl['Vb'] = np.zeros_like(ccf_files,dtype = float)  # bisector velocity 'bottom' in perryman
+    tbl['Vb_ERR'] = np.zeros_like(ccf_files,dtype = float)  # bisector velocity 'bottom' in perryman
     tbl['BIS'] = np.zeros_like(ccf_files,dtype = float)  # bisector velocity width
-    
+    tbl['BIS_ERR'] = np.zeros_like(ccf_files,dtype = float)  # bisector velocity width
+
     for i in range(len(ccf_files)):
         
         try:
@@ -823,10 +841,14 @@ def run_bisector_method(tbl, ccf_files, ccf_RV, mean_ccf, bis_min=0.3, bis_max=0
             tbl['BIS_WIDTH'][i] = np.mean(width[(depth > bis_min) & (depth < bis_max)])
 
             # mean 'top' CCF between 55 and 80% of depth
-            tbl['Vt'][i] = np.mean(bis[(depth>0.55)*(depth<0.80)])
+            tbl['Vt'][i] = np.nanmean(bis[(depth>0.55)*(depth<0.80)])
+            tbl['Vt_ERR'][i] = np.nanstd(bis[(depth>0.55)*(depth<0.80)])
             # mean 'bottom' CCF between 20-40%
-            tbl['Vb'][i] =np.mean(bis[(depth>0.20)*(depth<0.40)])
+            tbl['Vb'][i] = np.nanmean(bis[(depth>0.20)*(depth<0.40)])
+            tbl['Vb_ERR'][i] = np.nanstd(bis[(depth>0.20)*(depth<0.40)])
+
             tbl['BIS'][i] = tbl['Vt'][i] - tbl['Vb'][i]
+            tbl['BIS_ERR'][i] = np.sqrt(tbl['Vt_ERR'][i]**2 + tbl['Vb_ERR'][i]**2)
 
         except :
             if verbose :
@@ -837,9 +859,11 @@ def run_bisector_method(tbl, ccf_files, ccf_RV, mean_ccf, bis_min=0.3, bis_max=0
             tbl['BIS_SLOPE'][i] =  np.nan
             tbl['BIS_WIDTH'][i] = np.nan
             tbl['Vt'][i] = np.nan
+            tbl['Vt_ERR'][i] = np.nan
             tbl['Vb'][i] = np.nan
+            tbl['Vb_ERR'][i] = np.nan
             tbl['BIS'][i] = np.nan
-                
+            tbl['BIS_ERR'][i] = np.nan
     return tbl
 
 
@@ -876,12 +900,56 @@ def run_gaussian_method(tbl, ccf_files, ccf_RV, mean_ccf) :
         # just in case you want to have gauss/bisector and
         # template, we keep a RV that is specific to this method
         tbl['RV_GAUSS'][i] = fit[0]
-
         tbl['GAUSS_WIDTH'][i] = fit[1]
         tbl['GAUSS_AMP'][i] = fit[3]
         tbl['GAUSS_ZP'][i] = fit[2]
 
     return tbl
+
+
+def run_gp_gaussian_method(tbl, ccf_files, ccf_RV, mean_ccf, med_corr_ccf) :
+    
+    tbl['RV_GAUSS'] = np.zeros_like(ccf_files,dtype = float) # mean gauss velocity
+    tbl['RV_GAUSS_ERR'] = np.zeros_like(ccf_files,dtype = float) # mean gauss velocity
+    tbl['GAUSS_WIDTH'] = np.zeros_like(ccf_files,dtype = float)  # gauss width
+    tbl['GAUSS_WIDTH_ERR'] = np.zeros_like(ccf_files,dtype = float)  # gauss width
+    tbl['GAUSS_AMP'] = np.zeros_like(ccf_files,dtype = float)  # gauss depth
+    tbl['GAUSS_AMP_ERR'] = np.zeros_like(ccf_files,dtype = float)  # gauss depth
+    tbl['GAUSS_ZP'] = np.zeros_like(ccf_files,dtype = float)  # gauss zp
+
+    residuals = np.full_like(mean_ccf, np.nan)
+    for i in range(len(ccf_files)):
+        residuals[:,i] = mean_ccf[:,i] - med_corr_ccf
+    ccf_errors = np.nanstd(residuals,axis=1)
+
+    imin = np.argmin(np.nanmedian(mean_ccf, axis=1))
+    
+    for i in range(len(ccf_files)):
+        for iter in range(10) :
+            try :
+                fit, err = gp_lib.fit_gaussian_profile(ccf_RV, mean_ccf[:,i], ccf_errors, burnin=100, nsamples=500, plot=False, verbose=False)
+                break
+            except :
+                print("file={} iter={} : GP Gaussian fit failed, trying again ...".format(i, iter))
+
+        #tbl['RV'][i] = fit[2]
+
+        # just in case you want to have gauss/bisector and
+        # template, we keep a RV that is specific to this method
+        tbl['GAUSS_AMP'][i] = fit[2]
+        tbl['GAUSS_AMP_ERR'][i] = err[2]
+
+        tbl['RV_GAUSS'][i] = fit[3]
+        tbl['RV_GAUSS_ERR'][i] = err[3]
+
+        tbl['GAUSS_WIDTH'][i] = np.sqrt(np.exp(fit[4]))
+        maxwidth = np.sqrt(np.exp(fit[4] + err[4]))
+        minwidth = np.sqrt(np.exp(fit[4] - err[4]))
+        width_err = (maxwidth - minwidth)/2
+        tbl['GAUSS_WIDTH_ERR'][i] = width_err
+
+    return tbl
+
 
 def plot_gaussian_method(tbl, batch_name, saveplots=False, showplots=False) :
 
@@ -896,7 +964,6 @@ def plot_gaussian_method(tbl, batch_name, saveplots=False, showplots=False) :
     if showplots :
         plt.show()
 
-from scipy import ndimage
 
 def run_template_method(tbl, ccf_files, ccf_RV, mean_ccf, id_min, velocity_window, nite_max = 20, doplot=False, showplots=False, verbose=False) :
 
@@ -920,12 +987,12 @@ def run_template_method(tbl, ccf_files, ccf_RV, mean_ccf, id_min, velocity_windo
         ax[0].set(xlabel='Nth observation',ylabel='Velocity [km/s]',title='Before CCF register')
 
     per_ccf_rms = np.ones(len(ccf_files))
-    while (rms_rv_ite>1e-4) and (ite<nite_max):
+    while (rms_rv_ite>1e-5) and (ite<nite_max):
         if ite ==0:
             tbl['RV'] = 0
 
         w = 1/per_ccf_rms**2
-        w/=np.sum(w)
+        w/=np.nansum(w)
         med_corr_ccf = np.zeros(len(ccf_RV))
         for i in range(len(w)):
             med_corr_ccf+=(corr_ccf[:,i]*w[i])
@@ -941,9 +1008,8 @@ def run_template_method(tbl, ccf_files, ccf_RV, mean_ccf, id_min, velocity_windo
 
         for i in range(len(ccf_files)):
             spline = ius(ccf_RV,mean_ccf[:,i],ext=3,k=5)
-            
             corr_ccf[:,i] = spline(ccf_RV+tbl['RV'][i])
-            
+
             # correcting median of CCF
             med =  np.nanmedian(corr_ccf[:,i] - med_corr_ccf)
             mean_ccf[:, i] -= med
@@ -953,7 +1019,7 @@ def run_template_method(tbl, ccf_files, ccf_RV, mean_ccf, id_min, velocity_windo
             mean_ccf[:, i] = (mean_ccf[:,i] - np.nanmean(mean_ccf[:,i]))/np.sqrt(amp)+np.nanmean(mean_ccf[:,i])
 
             # correcting 2rd order polynomial structures in continuum
-            fit = np.polyfit(ccf_RV,med_corr_ccf-corr_ccf[:,i],2)
+            fit = np.polyfit(ccf_RV,med_corr_ccf-corr_ccf[:,i],3)
 
             corr = np.polyval(fit, ccf_RV)
             mean_ccf[:, i] += corr/2
@@ -1019,8 +1085,8 @@ def plot_corr_ccf(ccf_files, ccf_RV, corr_ccf, batch_name, id_min, saveplots=Fal
     fig,ax = plt.subplots(nrows = 2, ncols = 1)
     for i in range(len(ccf_files)):
         color = [i/len(ccf_files),1-i/len(ccf_files),1-i/len(ccf_files)]
-        ax[0].plot(ccf_RV,corr_ccf[:,i],color = color,alpha = 0.2)
-        ax[1].plot(ccf_RV, corr_ccf[:, i], color=color, alpha=0.2)
+        ax[0].plot(ccf_RV,corr_ccf[:,i],color=color,alpha=0.2)
+        ax[1].plot(ccf_RV,corr_ccf[:,i],color=color,alpha=0.2)
 
     ax[0].set(xlabel = 'Velocity [km/s]',ylabel = 'CCF depth', title = 'Mean CCFs')
     ax[1].set(xlabel = 'Velocity [km/s]',ylabel = 'CCF depth', title = 'Mean CCFs',xlim = [ccf_RV[id_min]-10, ccf_RV[id_min]+10])
@@ -1063,8 +1129,12 @@ def calculate_resid_ccf_projections(ccf_files, tbl, ccf_RV, med_corr_ccf, corr_c
     # pix scale expressed in CCF pixels
     pix_scale = pixel_size_in_kps / np.nanmedian(np.gradient(ccf_RV))
     
+    residuals = np.full_like(corr_ccf, np.nan)
+    
     for i in range(len(ccf_files)):
         residual = corr_ccf[:,i] - med_corr_ccf
+        
+        residuals[:,i] = residual
         
         tbl['D2_RESIDUAL_CCF'][i] = np.nansum(residual*d2) / np.nansum(d2)
         tbl['D3_RESIDUAL_CCF'][i] = np.nansum(residual*d3) / np.nansum(d3)
@@ -1073,7 +1143,7 @@ def calculate_resid_ccf_projections(ccf_files, tbl, ccf_RV, med_corr_ccf, corr_c
         # 1/dvrms -avoids division by zero
         inv_dvrms = (np.gradient(med_corr_ccf) / np.gradient(ccf_RV))/((np.nanstd(residual) * np.sqrt(pix_scale)) )
         tbl['ERROR_RV'][i] = 1 / np.sqrt(np.nansum(inv_dvrms ** 2))
-    
+        
     return tbl
 
 
@@ -1111,7 +1181,7 @@ def plot_residual_ccf(ccf_files, ccf_RV, med_corr_ccf, corr_ccf, batch_name, sav
     #vmax = np.nanpercentile(residuals,99)
     vmin = np.nanmin(residuals)
     vmax = np.nanmax(residuals)
-    plt.imshow(residuals,aspect = 'auto',vmin = vmin, vmax = vmax,extent = [np.min(ccf_RV),np.max(ccf_RV),0,len(ccf_files)])
+    plt.imshow(residuals,aspect = 'auto',vmin = vmin, vmax = vmax,extent = [np.min(ccf_RV),np.max(ccf_RV),len(ccf_files),0])
     plt.ylabel('Nth observation')
     plt.xlabel('Velocity [km/s]')
     plt.title('Residual CCF')
@@ -1202,11 +1272,11 @@ def create_collections(ccf_files, fpccf=False, verbose=False) :
         
             filename = hdr['FILENAME']
             if fpccf :
-                object = "fp"
-                ccfmask = "fp.mas"
+                object = hdr['OBJECT'].upper().replace(" ","") + "_Fiber" + hdr['FIBER']
+                ccfmask = hdr['WFPMASK']
                 drs_version = "none"
             else :
-                object = hdr['OBJECT']
+                object = hdr['OBJECT'].upper().replace(" ","")
                 ccfmask = hdr['CCFMASK']
                 drs_version = hdr['VERSION']
 
@@ -1307,8 +1377,8 @@ def save_drift_time_series_in_rdb_format(tbl, output, time_in_rjd=True, rv_in_mp
     densfilt = tbl['SBCDEN_P']
 
     outfile = open(output,"w+")
-    outfile.write("rjd\tvrad\tsvrad\tSBCDEN_P\tDATE-OBS\tEXPTYPE\n")
-    outfile.write("---\t----\t-----\t--------\t--------\t-------\n")
+    outfile.write("rjd\tvrad\tsvrad\tSBCDEN_P\tDATE-OBS\tWAVETIME\tFIBER\tEXPTYPE\tFILENAME\t\n")
+    outfile.write("---\t----\t-----\t--------\t--------\t-------\t-------\t-------\n")
     
     for i in range(len(jd)) :
         if time_in_rjd :
@@ -1317,9 +1387,9 @@ def save_drift_time_series_in_rdb_format(tbl, output, time_in_rjd=True, rv_in_mp
             rjd = jd[i]
         
         if rv_in_mps :
-            outfile.write("{0:.10f}\t{1:.2f}\t{2:.2f}\t{3:.2f}\t{4}\t{5}\n".format(rjd, 1000. * rv[i], 1000. * rverr[i], densfilt[i], tbl['DATE-OBS'][i], tbl['EXPTYPE'][i]))
+            outfile.write("{0:.10f}\t{1:.2f}\t{2:.2f}\t{3:.2f}\t{4}\t{5:.10f}\t{6}\t{7}\t{8}\n".format(rjd, 1000. * rv[i], 1000. * rverr[i], densfilt[i], tbl['DATE-OBS'][i], tbl['WAVETIME'][i], tbl['FIBER'][i], tbl['EXPTYPE'][i], tbl['FILENAME'][i]))
         else :
-            outfile.write("{0:.10f}\t{1:.5f}\t{2:.5f}\t{3:.2f}\t{4}\t{5}\n".format(rjd, rv[i], rverr[i], densfilt[i], tbl['DATE-OBS'][i], tbl['EXPTYPE'][i]))
+            outfile.write("{0:.10f}\t{1:.5f}\t{2:.5f}\t{3:.2f}\t{4}\t{5:.10f}\t{6}\t{7}\t{8}\n".format(rjd, rv[i], rverr[i], densfilt[i], tbl['DATE-OBS'][i], tbl['WAVETIME'][i], tbl['FIBER'][i], tbl['EXPTYPE'][i], tbl['FILENAME'][i]))
 
     outfile.close()
 
