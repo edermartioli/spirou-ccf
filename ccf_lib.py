@@ -1,4 +1,4 @@
-# -*- coding: iso-8859-1 -*-
+# -*- coding: utf-8 -*-
 """
 # CODE NAME HERE
 # CODE DESCRIPTION HERE
@@ -471,8 +471,11 @@ def fits2wave(file_or_header, npix=0):
     
     # get the length of each order  if not provided (normally that's 4088 pix)
     if npix == 0 :
-        npix = hdr['NAXIS1']
-    
+        if 'NAXIS1' in hdr.keys() :
+            npix = hdr['NAXIS1']
+        else :
+            npix = 4088
+
     # project polynomial coefficiels
     wavesol = [np.polyval(wave_poly[i][::-1],np.arange(npix)) for i in range(nord) ]
     

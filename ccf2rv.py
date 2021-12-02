@@ -238,7 +238,7 @@ def get_object_rv(ccf_files,
         if save_rdb_timeseries :
             fp_rdb_output = '{0}_fpdrift.rdb'.format(batch_name)
             if detailed_output:
-                dict_ccf['FP_RDB_OUTPUT'] = output_ccf_fitsfile
+                dict_ccf['FP_RDB_OUTPUT'] = fp_rdb_output
             save_drift_time_series_in_rdb_format(tbl, fp_rdb_output, rv_key='RV')
 
     else :

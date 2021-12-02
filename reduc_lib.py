@@ -689,7 +689,7 @@ def reduce_spectra(spectra, nsig_clip=0.0, combine_by_median=False, subtract=Tru
     #for order in range(30,31) :
 
         if verbose:
-            print("Processing order {0} / 48 ...".format(order))
+            print("Reducing spectra for order {0} / 48 ...".format(order))
 
         # get mean signal before applying flux corrections
         median_signals = []
@@ -1865,8 +1865,6 @@ def load_array_of_e2ds_spirou_spectra(inputdata, silent=True, verbose=False) :
     speed_of_light_in_kps = constants.c / 1000.
 
     for i in range(len(inputdata)) :
-        if verbose :
-            print("Loading spectrum:",inputdata[i],"{0}/{1}".format(i,len(inputdata)-1))
 
         spectrum = {}
 
@@ -1883,15 +1881,20 @@ def load_array_of_e2ds_spirou_spectra(inputdata, silent=True, verbose=False) :
         out_wl, out_flux, out_fluxerr, out_order = [], [], [], []
 
         hdu = fits.open(inputdata[i])
-        hdr = deepcopy(hdu[0].header)
+        
+        if inputdata[i].endswith("e.fits") :
+            hdr = deepcopy(hdu[0].header + hdu[1].header)
+            waves = hdu["WaveC"].data
+            fluxes = hdu["FluxC"].data
+        else :
+            hdr = deepcopy(hdu[0].header)
+            waves = ccf_lib.fits2wave(hdr)
+            fluxes = deepcopy(hdu[0].data)
 
         spectrum["header"] = hdr
 
         # get DETECTOR GAIN and READ NOISE from header
         gain, rdnoise = hdr['GAIN'], hdr['RDNOISE']
-
-        waves = ccf_lib.fits2wave(hdr)
-        fluxes = deepcopy(hdu[0].data)
 
         spectrum['DATE'] = hdr['DATE']
         spectrum['MJD'] = hdr['MJD-OBS']
@@ -2222,7 +2225,11 @@ def run_spirou_fp_ccf(inputdata, ccf_mask, ccf_width=10, nsig_clip=4, vel_sampli
         # exclude orders with strong telluric absorption
         exclude_orders = [-1]  # to include all orders
 
-        obj = fp_ccf["header"]["OBJECT"].upper().replace(" ","") + "_Fiber" + fp_ccf["header"]['FIBER']
+        if spectra['filenames'][0].endswith("e.fits") :
+            obj = fp_ccf["header"]["OBJECT"].upper().replace(" ","") + "_FiberC"
+        else :
+            obj = fp_ccf["header"]["OBJECT"].upper().replace(" ","") + "_Fiber" + fp_ccf["header"]['FIBER']
+            
         drs_version = fp_ccf["header"]['VERSION']
 
         loc_ccf = ccf2rv.run_ccf_analysis(fp_ccf_file_list, ccf_mask, obj=obj, drs_version=drs_version, snr_min=10., velocity_window=velocity_window, dvmax_per_order=vel_sampling, sanit=False, correct_rv_drift=True, save_ccf_fitsfile=True, exclude_orders = exclude_orders, fpccf=True, plot=plot, verbose=verbose)

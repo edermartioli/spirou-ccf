@@ -12,6 +12,8 @@
     
     python ~/spirou-tools/spirou-ccf/spirou_fp_ccf.py --input=*_pp_e2dsff_C.fits -pv
     
+    python ~/spirou-tools/spirou-ccf/spirou_fp_ccf.py --input=*e.fits -pv
+
     """
 
 __version__ = "1.0"
