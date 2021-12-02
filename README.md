@@ -4,7 +4,7 @@ A tool-kit to perform optimal CCF measurements and a CCF analysis to obtain prec
 To start using this tool one needs a set of SPIRou spectra in `*t.fits` format saved in the same directory.  Then run the following example:
 
 ```
-python ~/spirou-ccf/spirou_ccf_pipeline.py --input=*t.fits -pvs
+python ~/spirou-ccf/spirou_ccf_pipeline.py --input=*t.fits -pv
 ```
 
 The following input options are available:
