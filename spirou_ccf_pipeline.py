@@ -52,7 +52,7 @@ h2o_mask = os.path.join(telluric_mask_repository,'trans_h2o_abso_ccf.mas')
 tel_mask = os.path.join(telluric_mask_repository,'trans_others_abso_ccf.mas')
 drift_repository = os.path.join(spirou_ccf_dir,'drifts/')
 cal_fp_rv_file = os.path.join(drift_repository, "CALIBRATION_FiberC__smart_fp_mask.mas__False__0.6.132__YJHK_fpdrift.rdb")
-fp_mask = os.path.join(spirou_ccf_dir,'ccf_masks/apero_masks/smart_fp_mask.mas')
+fp_mask = os.path.join(spirou_ccf_dir,'ccf_masks/smart_fp_mask.mas')
 
 def run_spirou_ccf(inputdata, ccf_mask, drifts, telluric_rv=False, use_efits=False, normalize_ccfs=True, save_output=True, source_rv=0., ccf_width=100, vel_sampling=1.8, run_analysis=True, output_template="", interp_with_gp=False, verbose=False, plot=False) :
     """
