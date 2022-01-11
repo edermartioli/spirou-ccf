@@ -69,36 +69,36 @@ Once the processing is done, one can find the `*_rv.rdb` products, which give th
 
 
 *****************************************
-## How to create a CCF drift ".rdb" file:
+# How to create a CCF drift ".rdb" file:
 *****************************************
 
-# First get all fiber-C spectra from FP-FP calibrations into the same directory, for example:
+## First get all fiber-C spectra from FP-FP calibrations into the same directory, for example:
 
 ```
 ln -s /net/GSP/nas12c/big_spirou/FULL_REDUCTION_CALIBDB_06131/reduced/2021*/*a_pp_e2dsff_C.fits .
 ```
 
-# or one may copy these files from the server into a local machine:
+or one may copy these files from the server into a local machine:
 
 ```
 scp -oProxyJump=$USER@charon.osupytheas.fr $USER@cc.lam.fr:/net/GSP/nas12c/big_spirou/FULL_REDUCTION_CALIBDB_06131/reduced/2021*/*a_pp_e2dsff_C.fits .
 ```
 
-# Note in the example above the wildcard "2021*" selects only calibrations from 2021, however one may expand or restrict this selection. A good strategy is to include all calibration files obtained in the observing runs that also observed the science target.
+Note in the example above the wildcard "2021*" selects only calibrations from 2021, however one may expand or restrict this selection. A good strategy is to include all calibration files obtained in the observing runs that also observed the science target.
 
-# Run FP CCF pipeline:
+## Run FP CCF pipeline:
 
 ```
 python ~/spirou-ccf/spirou_fp_ccf.py --input=*a_pp_e2dsff_C.fits -pv 
 ```
 
-# The final CCF drift file should be something like this:
+## The final CCF drift file should be something like this:
 
 ```
 CALIBRATION_FiberC__smart_fp_mask.mas__False__0.6.132__YJHK_fpdrift.rdb
 ```
 
-#The contents of this file is the following:
+##The contents of this file is the following:
 
 ```
 rjd	vrad	svrad	SBCDEN_P	DATE-OBS	WAVETIME	FIBER	EXPTYPE	FILENAME	
