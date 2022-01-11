@@ -111,4 +111,4 @@ rjd	vrad	svrad	SBCDEN_P	DATE-OBS	WAVETIME	FIBER	EXPTYPE	FILENAME
 ...
 ```
 
-Note that the same procedure above can be done in the science fiber-C data or `*e.fits` files to obtain similar drift files for the simultaneous FP exposures.  These `*.rdb` files are inputs to the `spirou_ccf_pipeline.py` so you can have more control on the drifts. 
+Note that the same procedure above can also run in the science fiber-C data or `*e.fits` files to obtain similar drift files for the simultaneous FP exposures.  These `*.rdb` files are inputs to the `spirou_ccf_pipeline.py` so one can have more control on the drifts. 
