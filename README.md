@@ -69,29 +69,38 @@ Once the processing is done, one can find the `*_rv.rdb` products, which give th
 
 
 *****************************************
-How to create a CCF drift ".rdb" file
+## How to create a CCF drift ".rdb" file:
 *****************************************
 
 # First get all fiber-C spectra from FP-FP calibrations into the same directory, for example:
 
+```
 ln -s /net/GSP/nas12c/big_spirou/FULL_REDUCTION_CALIBDB_06131/reduced/2021*/*a_pp_e2dsff_C.fits .
+```
 
 # or one may copy these files from the server into a local machine:
 
-scp -oProxyJump=emartioli@charon.osupytheas.fr emartioli@cc.lam.fr:/net/GSP/nas12c/big_spirou/FULL_REDUCTION_CALIBDB_06131/reduced/2021*/*a_pp_e2dsff_C.fits .
+```
+scp -oProxyJump=$USER@charon.osupytheas.fr $USER@cc.lam.fr:/net/GSP/nas12c/big_spirou/FULL_REDUCTION_CALIBDB_06131/reduced/2021*/*a_pp_e2dsff_C.fits .
+```
 
 # Note in the example above the wildcard "2021*" selects only calibrations from 2021, however one may expand or restrict this selection. A good strategy is to include all calibration files obtained in the observing runs that also observed the science target.
 
 # Run FP CCF pipeline:
 
+```
 python ~/spirou-ccf/spirou_fp_ccf.py --input=*a_pp_e2dsff_C.fits -pv 
+```
 
 # The final CCF drift file should be something like this:
 
+```
 CALIBRATION_FiberC__smart_fp_mask.mas__False__0.6.132__YJHK_fpdrift.rdb
+```
 
 #The contents of this file is the following:
 
+```
 rjd	vrad	svrad	SBCDEN_P	DATE-OBS	WAVETIME	FIBER	EXPTYPE	FILENAME	
 ---	----	-----	--------	--------	-------	-------	-------
 59207.6115577999	-0.96634	0.00357	1.19	2020-12-24	59207.1333517521	C	ALIGN	2571217a
@@ -99,5 +108,7 @@ rjd	vrad	svrad	SBCDEN_P	DATE-OBS	WAVETIME	FIBER	EXPTYPE	FILENAME
 59208.5912780999	-0.96565	0.00327	1.19	2020-12-25	59208.1130737521	C	ALIGN	2571454a
 59209.2326638000	-0.96587	0.00380	1.19	2020-12-25	59208.7544565521	C	ALIGN	2571641a
 59209.5913188001	-0.96537	0.00336	1.19	2020-12-26	59209.1131080521	C	ALIGN	2571671a
- 
+...
+```
+
 Note that the same procedure above can be done in the science fiber-C data or *e.fits files to obtain similar drift files for the simultaneous FP exposures.  These *.rdb files are inputs to the spirou_ccf_pipeline.py so you can have more control on the drifts. 
