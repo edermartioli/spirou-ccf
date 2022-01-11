@@ -92,13 +92,13 @@ Note in the example above the wildcard `"2021*"` selects only calibrations from 
 python ~/spirou-ccf/spirou_fp_ccf.py --input=*a_pp_e2dsff_C.fits -pv 
 ```
 
-## The final CCF drift file should be something like this:
+## The final CCF drift file should be something named like this:
 
 ```
 CALIBRATION_FiberC__smart_fp_mask.mas__False__0.6.132__YJHK_fpdrift.rdb
 ```
 
-##The contents of this file is the following:
+The contents of this file is the following:
 
 ```
 rjd	vrad	svrad	SBCDEN_P	DATE-OBS	WAVETIME	FIBER	EXPTYPE	FILENAME	
