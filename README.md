@@ -52,7 +52,7 @@ value of 0.5 d)
 
 -t to run CCF analysis on telluric spectra. This takes more time to run and do not affect the science CCF calculations.
 
--d to calcualte the instrumental RV drift correction obtained from simultaneous FP spectra taken through fiber-C and 
+-d to calculate the instrumental RV drift correction obtained from simultaneous FP spectra taken through fiber-C and 
 nightly calibration FP spectra. The drifts on science exposures can be measured either from *e.fits or o_pp_e2dsff_C.fits 
 data saved in the same directory as the input spectra or specified using the option " --input_fp_fiberC", or one can 
 input the drift data in a .rdb file using the option "--sci_drift_data". The calibration drifts are obtained by default 
