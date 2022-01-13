@@ -135,7 +135,7 @@ def get_object_rv(ccf_files,
     ccf_cube, ccf_tbl, ccf_RV = build_ccf_cube(ccf_files, batch_name, exclude_orders=exclude_orders, save_ccf_cube=save_ccf_cube, verbose=verbose, fpccf=fpccf)
 
     # keywords from file headers to be added to the CSV table.
-    keywords = ['MJDATE','BERV','BJD','RV_DRIFT','EXTSN035','AIRMASS','TLPEH2O','TLPEOTR','RV_WAVFP','RV_SIMFP','DATE', 'MJDMID','DATE-OBS','EXPTIME','EXPNUM','MJDEND','SBCDEN_P','EXPTYPE','FILENAME','FIBER','WAVETIME']
+    keywords = ['MJDATE','BERV','BJD','RV_DRIFT','ERVDRIFT','EXTSN035','AIRMASS','TLPEH2O','TLPEOTR','RV_WAVFP','RV_SIMFP','DATE','MJDMID','DATE-OBS','EXPTIME','EXPNUM','MJDEND','SBCDEN_P','EXPTYPE','FILENAME','FIBER','WAVETIME']
     # set output csv table
     tbl = set_output_table(ccf_files, keywords)
 
@@ -269,10 +269,14 @@ def get_object_rv(ccf_files,
 
         if correct_rv_drift and 'RV_DRIFT' in tbl.keys():
             dict_ccf['RV'] = tbl['RV'] - tbl['RV_DRIFT']
+            if 'ERVDRIFT' in tbl.keys():
+                dict_ccf['RVERR'] = np.sqrt(tbl['ERROR_RV']*tbl['ERROR_RV'] + tbl['ERVDRIFT']*tbl['ERVDRIFT'])
+            else :
+                dict_ccf['RVERR'] = tbl['ERROR_RV']
         else :
             dict_ccf['RV'] = tbl['RV']
-
-        dict_ccf['RVERR'] = tbl['ERROR_RV']
+            dict_ccf['RVERR'] = tbl['ERROR_RV']
+            
         if fpccf :
             dict_ccf['BJD'] = tbl['MJDATE']
         else :
@@ -1352,10 +1356,15 @@ def save_rv_time_series_in_rdb_format(tbl, output, time_in_rjd=True, rv_in_mps=F
     
     if correct_rv_drift and 'RV_DRIFT' in tbl.keys():
         rv = tbl[rv_key] - tbl['RV_DRIFT']
+        if 'ERVDRIFT' in tbl.keys() :
+            rverr = np.sqrt(tbl[rverr_key]*tbl[rverr_key] + tbl['ERVDRIFT']*tbl['ERVDRIFT'])
+        else :
+            rverr = tbl[rverr_key]
+
     else :
         rv = tbl[rv_key]
-
-    rverr = tbl[rverr_key]
+        rverr = tbl[rverr_key]
+        
     if fpccf :
         bjd = tbl['MJDATE']
     else :

@@ -63,7 +63,7 @@ def run_spirou_ccf(inputdata, ccf_mask, drifts, telluric_rv=False, use_efits=Fal
         3. Calculate the CCF for each reduced spectrum in the time series (including star, and tellurics)
         4. Run the CCF template matching analysis on the CCF time series data.
         """
-    reduced = reduc_lib.reduce_timeseries_of_spectra(inputdata, ccf_mask, rvfile="", use_efits=use_efits, fix_gaps=False, max_gap_size=8.0, nsig_clip=4.0, align_spectra=True, vel_sampling=vel_sampling, min_window_size=float(ccf_width), tel_mask=tel_mask, h2o_mask=h2o_mask, telluric_rv=telluric_rv, ccf_width=ccf_width, source_rv=source_rv, output_template=output_template, interp_with_gp=interp_with_gp, verbose=verbose)
+    reduced = reduc_lib.reduce_timeseries_of_spectra(inputdata, ccf_mask, rvfile="", use_efits=use_efits, fix_gaps=False, max_gap_size=5.0, nsig_clip=4.0, align_spectra=True, vel_sampling=vel_sampling, min_window_size=float(ccf_width), tel_mask=tel_mask, h2o_mask=h2o_mask, telluric_rv=telluric_rv, ccf_width=ccf_width, source_rv=source_rv, output_template=output_template, interp_with_gp=interp_with_gp, verbose=verbose)
     
     fluxkey, fluxerrkey = reduced["fluxkey"], reduced["fluxerrkey"]
     waveskey, wavekey = reduced["waveskey"], reduced["wavekey"]

@@ -115,8 +115,8 @@ def set_ccf_params(maskfile, telluric_masks=[], science_channel=True) :
         # These values are taken from the constants file
         loc["MASK_WIDTH"] = 1.7                   # CCF_MASK_WIDTH
         loc["MASK_MIN_WEIGHT"] = 0.0              # CCF_MASK_MIN_WEIGHT
-        loc["CCF_STEP"] = 0.5                     # WAVE_CCF_STEP
-        loc["CCF_WIDTH"] = 7.5                    # WAVE_CCF_WIDTH
+        loc["CCF_STEP"] = 0.25                     # WAVE_CCF_STEP
+        loc["CCF_WIDTH"] = 6.5                    # WAVE_CCF_WIDTH
         loc["CCF_RV_NULL"] = -9999.99             # CCF_OBJRV_NULL_VAL
         loc["CCF_N_ORD_MAX"] = 48                 # WAVE_CCF_N_ORD_MAX
         loc["BLAZE_NORM_PERCENTILE"] = 90         # CCF_BLAZE_NORM_PERCENTILE
@@ -1021,6 +1021,7 @@ def write_file(props, infile, maskname, header, wheader, rv_drifts, save=True, v
     header['RV_SIMFP'] = (rv_drifts['RV_SIMFP'], 'RV measured from simultaneous FP CCF [km/s]')
     header['RV_DRIFT'] = (rv_drifts['RV_DRIFT'],
                           'RV drift between wave sol and sim. FP CCF [km/s]')
+    header.set('ERVDRIFT', rv_drifts['RV_DRIFTERR'], 'Error of RV_DRIFT [km/s]')
     header['RV_OBJ'] = (props['MEAN_RV'],
                         'RV calc in the object CCF (non corr.) [km/s]')
     if type(rv_drifts['RV_DRIFT']) == float :
@@ -1405,6 +1406,7 @@ def run_ccf_eder(ccf_params, wave, fluxes, header, ccfmask, rv_drifts={}, filena
         rv_drifts["RV_WAVFP"] = 'None'
         rv_drifts["RV_SIMFP"] = 'None'
         rv_drifts["RV_DRIFT"] = 0.
+        rv_drifts["RV_DRIFTERR"] = 0.
 
     warnings.simplefilter(action='ignore', category=FutureWarning)
     warnings.simplefilter(action='ignore', category=RuntimeWarning)

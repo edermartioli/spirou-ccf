@@ -2129,7 +2129,7 @@ def run_spirou_fp_ccf(inputdata, ccf_mask, ccf_width=10, nsig_clip=4, vel_sampli
     
     if align_spectra :
         print("******************************")
-        print("STEP: Aligning spectra to a common wavelength grid of {0:.2f} km/s ...".format(vel_sampling))
+        print("STEP: Aligning FP spectra to a common wavelength grid of {0:.2f} km/s ...".format(vel_sampling))
         print("******************************")
         # Set a common wavelength grid for all input spectra
         spectra = set_common_wl_grid(spectra, vel_sampling=vel_sampling)
@@ -2167,7 +2167,20 @@ def run_spirou_fp_ccf(inputdata, ccf_mask, ccf_width=10, nsig_clip=4, vel_sampli
     base_header = deepcopy(array_of_spectra["spectra"][0]["header"])
     order_subset_for_mean_ccf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 49, 48]
 
-    #template_ccf = ccf_lib.run_ccf_eder(ccf_params, templ_wave, templ_fluxes, base_header, ccfmask, rv_drifts={}, targetrv=0., valid_orders=order_subset_for_mean_ccf, normalize_ccfs=normalize_ccfs, fit_type=1, output=False, plot=True, verbose=False)
+    # 1st iteration to calculate fwhm and rv_cen from template CCF
+    template_ccf = ccf_lib.run_ccf_eder(ccf_params, templ_wave, templ_fluxes, base_header, ccfmask, rv_drifts={}, targetrv=0., valid_orders=order_subset_for_mean_ccf, normalize_ccfs=normalize_ccfs, fit_type=1, output=False, plot=False, verbose=False)
+
+    ccf_params["CCF_WIDTH"] = 1.25 * template_ccf["header"]['CCFMFWHM']
+    rv_cen = template_ccf["header"]['RV_OBJ']
+    
+    # 2nd iteration to calculate fwhm and rv_cen from template CCF
+    template_ccf = ccf_lib.run_ccf_eder(ccf_params, templ_wave, templ_fluxes, base_header, ccfmask, rv_drifts={}, targetrv=rv_cen, valid_orders=order_subset_for_mean_ccf, normalize_ccfs=normalize_ccfs, fit_type=1, output=False, plot=False, verbose=False)
+
+    ccf_params["CCF_WIDTH"] = 1.25 * template_ccf["header"]['CCFMFWHM']
+    rv_cen = template_ccf["header"]['RV_OBJ']
+    
+    if verbose :
+        print("Template FP CCF: FWHM={:.1f} km/s CCF_WIDTH={:.1f} km/s RV_CEN={:.3f} km/s.".format(template_ccf["header"]['CCFMFWHM'], ccf_params["CCF_WIDTH"], rv_cen))
 
     calib_rv, mean_fwhm  = [], []
     fp_ccf_file_list = []
@@ -2184,14 +2197,14 @@ def run_spirou_fp_ccf(inputdata, ccf_mask, ccf_width=10, nsig_clip=4, vel_sampli
         header = array_of_spectra["spectra"][i]["header"]
 
         # run an adpated version of the ccf codes using reduced spectra as input
-        fp_ccf = ccf_lib.run_ccf_eder(ccf_params, waves, fluxes, header, ccfmask, rv_drifts={}, filename=spectra['filenames'][i], targetrv=0., valid_orders=order_subset_for_mean_ccf, normalize_ccfs=normalize_ccfs, output=save_output, plot=False, verbose=False)
+        fp_ccf = ccf_lib.run_ccf_eder(ccf_params, waves, fluxes, header, ccfmask, rv_drifts={}, filename=spectra['filenames'][i], targetrv=rv_cen, valid_orders=order_subset_for_mean_ccf, fit_type=1, normalize_ccfs=normalize_ccfs, output=save_output, plot=False, verbose=False)
 
         fp_ccf_file_list.append(os.path.abspath(fp_ccf["file_path"]))
         calib_rv.append(fp_ccf["header"]['RV_OBJ'])
         mean_fwhm.append(fp_ccf["header"]['CCFMFWHM'])
 
         if verbose :
-            print("Spectrum: {0} DATE={1} -> RV={2:.5f} km/s FWHM={3:.5f} km/s".format(os.path.basename(spectra['filenames'][i]), fp_ccf["header"]["DATE"], fp_ccf["header"]['RV_OBJ'], fp_ccf["header"]['CCFMFWHM']))
+            print("FP Spectrum: {0} DATE={1} -> RV={2:.5f} km/s FWHM={3:.5f} km/s".format(os.path.basename(spectra['filenames'][i]), fp_ccf["header"]["DATE"], fp_ccf["header"]['RV_OBJ'], fp_ccf["header"]['CCFMFWHM']))
 
         if plot :
             if i == spectra['nspectra'] - 1 :
@@ -2220,7 +2233,7 @@ def run_spirou_fp_ccf(inputdata, ccf_mask, ccf_width=10, nsig_clip=4, vel_sampli
 
     if run_analysis :
         if verbose :
-            print("Running CCF analysis: velocity_window = {0:.3f} km/s".format(velocity_window))
+            print("Running FP CCF analysis: velocity_window = {0:.3f} km/s".format(velocity_window))
         
         # exclude orders with strong telluric absorption
         exclude_orders = [-1]  # to include all orders
