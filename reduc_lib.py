@@ -1028,9 +1028,11 @@ def plot_template_products(template, pfilename="") :
     plt.plot(template["wl"],-sig_clip * template["fluxerr"],"--", color="olive", lw=0.8, label=r"{0:.0f}$\sigma$ (MAD)".format(sig_clip))
     plt.plot(template["wl"],-sig_clip * template["fluxerr_model"],"-", color="k", lw=0.8, label="{0:.0f}$\sigma$ fit model".format(sig_clip))
 
-    plt.legend()
-    plt.xlabel(r"$\lambda$ [nm]")
-    plt.ylabel(r"Flux")
+    plt.legend(fontsize=20)
+    plt.xlabel(r"$\lambda$ [nm]", fontsize=26)
+    plt.ylabel(r"Flux", fontsize=26)
+    plt.xticks(fontsize=26)
+    plt.yticks(fontsize=26)
     if pfilename != "" :
         plt.savefig(pfilename, format='png')
     else :
@@ -1155,7 +1157,7 @@ def fit_continuum(wav, spec, function='polynomial', order=3, nit=5, rej_low=2.0,
     # apply median filtering prior to fit
     # [opt] [not in IRAF]
     if int(med_filt):
-        fspec = signal.medfilt(spec, kernel_size=med_filt)
+        fspec = sig.medfilt(spec, kernel_size=med_filt)
     else:
         fspec = spec
     # consider only a fraction of the points within percentile range
@@ -1372,7 +1374,8 @@ def normalize_spectra(spectra, template, fluxkey="fluxes", fluxerrkey="fluxerrs"
         nanmask &= np.isfinite(wl)
 
         if len(flux[nanmask]) > 10 :
-            continuum = fit_continuum(wl, flux, function='polynomial', order=3, nit=5, rej_low=2.5, rej_high=2.5, grow=1, med_filt=0, percentile_low=0., percentile_high=100.,min_points=10, xlabel="wavelength", ylabel="flux", plot_fit=False, silent=True)
+            #continuum = fit_continuum(wl, flux, function='polynomial', order=3, nit=5, rej_low=2.5, rej_high=2.5, grow=1, med_filt=0, percentile_low=0., percentile_high=100.,min_points=10, xlabel="wavelength", ylabel="flux", plot_fit=False, silent=True)
+            continuum = fit_continuum(wl, flux, function='polynomial', order=4, nit=5, rej_low=1.0, rej_high=4.0, grow=1, med_filt=1, percentile_low=0., percentile_high=100.,min_points=10, xlabel="wavelength", ylabel="flux", plot_fit=False, silent=True)
         else :
             continuum = np.full_like(wl, np.nan)
         
@@ -1817,10 +1820,10 @@ def plot_template_products_with_CCF_mask(template, ccfmask, source_rv=0, pfilena
 
         if i == len(template["flux_arr"]) - 1 :
             plt.plot(wl, flux,"-", color='#ff7f0e', lw=0.6, alpha=0.6, label="SPIRou data", zorder=1)
-            plt.plot(wl, resids,"-", color='#8c564b', lw=0.6, alpha=0.5, label="Residuals", zorder=1)
+            plt.plot(wl, resids,".", color='#8c564b', lw=0.2, alpha=0.2, label="Residuals", zorder=1)
         else :
             plt.plot(wl, flux,"-", color='#ff7f0e', lw=0.6, alpha=0.6, zorder=1)
-            plt.plot(wl, resids,"-", color='#8c564b', lw=0.6, alpha=0.5, zorder=1)
+            plt.plot(wl, resids,".", color='#8c564b', lw=0.2, alpha=0.2, zorder=1)
 
     # Plot CCF mask
     lines_in_order = ccfmask["orders"] == template['order']
@@ -1835,15 +1838,18 @@ def plot_template_products_with_CCF_mask(template, ccfmask, source_rv=0, pfilena
     plt.plot(template["wl"], template["flux"],"-", color="red", lw=2, label="Template spectrum", zorder=1.5)
 
     sig_clip = 3.0
-    plt.plot(template["wl"], sig_clip * template["fluxerr"],"--", color="olive", lw=0.8, zorder=1)
-    plt.plot(template["wl"], sig_clip * template["fluxerr_model"],"-", color="k", lw=0.8, zorder=2)
+    plt.plot(template["wl"], sig_clip * template["fluxerr"],"-", color="darkgreen", lw=2, zorder=1.1)
+    #plt.plot(template["wl"], sig_clip * template["fluxerr_model"],"-", color="k", lw=0.8, zorder=2)
 
-    plt.plot(template["wl"],-sig_clip * template["fluxerr"],"--", color="olive", lw=0.8, label=r"{0:.0f}$\sigma$ (MAD)".format(sig_clip), zorder=1)
-    plt.plot(template["wl"],-sig_clip * template["fluxerr_model"],"-", color="k", lw=0.8, label="{0:.0f}$\sigma$ fit model".format(sig_clip), zorder=2)
+    plt.plot(template["wl"],-sig_clip * template["fluxerr"],"-", color="darkgreen", lw=2, label=r"{0:.0f}$\sigma$".format(sig_clip), zorder=1.1)
+    #plt.plot(template["wl"],-sig_clip * template["fluxerr_model"],"-", color="k", lw=0.8, label="{0:.0f}$\sigma$ fit model".format(sig_clip), zorder=2)
 
-    plt.legend()
-    plt.xlabel(r"$\lambda$ [nm]", fontsize=16)
-    plt.ylabel(r"Flux", fontsize=16)
+    plt.legend(fontsize=16)
+    plt.xlabel(r"$\lambda$ [nm]", fontsize=26)
+    plt.ylabel(r"Relative flux", fontsize=26)
+    plt.xticks(fontsize=26)
+    plt.yticks(fontsize=26)
+    plt.xlim(1573,1581)
     if pfilename != "" :
         plt.savefig(pfilename, format='png')
     else :
@@ -2245,8 +2251,8 @@ def run_spirou_fp_ccf(inputdata, ccf_mask, ccf_width=10, nsig_clip=4, vel_sampli
             
         drs_version = fp_ccf["header"]['VERSION']
 
-        loc_ccf = ccf2rv.run_ccf_analysis(fp_ccf_file_list, ccf_mask, obj=obj, drs_version=drs_version, snr_min=10., velocity_window=velocity_window, dvmax_per_order=vel_sampling, sanit=False, correct_rv_drift=True, save_ccf_fitsfile=True, exclude_orders = exclude_orders, fpccf=True, plot=plot, verbose=verbose)
+        loc_ccf = ccf2rv.run_ccf_analysis(fp_ccf_file_list, ccf_mask, obj=obj, drs_version=drs_version, snr_min=10., velocity_window=velocity_window, pixel_size_in_kps=vel_sampling, dvmax_per_order=vel_sampling, sanit=False, correct_rv_drift=True, save_ccf_fitsfile=True, exclude_orders = exclude_orders, fpccf=True, plot=plot, verbose=verbose)
 
         output_rv_file = loc_ccf['FP_RDB_OUTPUT']
-    
+
         return output_rv_file
