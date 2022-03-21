@@ -18,6 +18,7 @@ import numpy as np
 import os, sys
 from astropy.io import fits
 import matplotlib.pyplot as plt
+plt.rcParams.update({'font.size': 16})
 from astropy.table import Table
 from scipy.optimize import curve_fit
 from scipy.interpolate import InterpolatedUnivariateSpline as ius
@@ -30,7 +31,7 @@ import gp_lib
 
 from astropy.convolution import Gaussian2DKernel, interpolate_replace_nans
 
-def run_ccf_analysis(ccf_files, mask_file, obj="", drs_version="", snr_min=20., dvmax_per_order=3.0, sanit=False, correct_rv_drift=False, save_ccf_fitsfile=False, exclude_orders = [-1], velocity_window=10., fpccf=False, outdir="", detailed_output=True, plot=False, verbose=False) :
+def run_ccf_analysis(ccf_files, mask_file, obj="", drs_version="", snr_min=20., dvmax_per_order=3.0, sanit=False, correct_rv_drift=False, save_ccf_fitsfile=False, exclude_orders = [-1], velocity_window=10., pixel_size_in_kps=2.3, fpccf=False, outdir="", detailed_output=True, plot=False, verbose=False) :
     
     """
         Description: a wrapper to run the CCF template matching analysis
@@ -54,7 +55,7 @@ def run_ccf_analysis(ccf_files, mask_file, obj="", drs_version="", snr_min=20., 
     # form a unique batch name with mask, object and method
     batch_name = '{0}/{1}__{2}'.format(outdir, collection_key, bandpass)
 
-    ccf = get_object_rv(ccf_files, collection_key=collection_key, method="all", exclude_orders=exclude_orders, snr_min=snr_min, bandpass=bandpass,velocity_window=velocity_window, dvmax_per_order=dvmax_per_order, save_rdb_timeseries=True, correct_rv_drift=correct_rv_drift, save_csv_table_of_results=True, save_ccf_cube=False, save_weight_table=False, doplot=plot, showplots=plot, save_ccf_fitsfile=save_ccf_fitsfile, saveplots=plot, detailed_output=detailed_output, verbose=verbose, fpccf=fpccf)
+    ccf = get_object_rv(ccf_files, collection_key=collection_key, method="all", exclude_orders=exclude_orders, snr_min=snr_min, bandpass=bandpass,velocity_window=velocity_window, dvmax_per_order=dvmax_per_order, pixel_size_in_kps=pixel_size_in_kps, save_rdb_timeseries=True, correct_rv_drift=correct_rv_drift, save_csv_table_of_results=True, save_ccf_cube=False, save_weight_table=False, doplot=plot, showplots=plot, save_ccf_fitsfile=save_ccf_fitsfile, saveplots=plot, detailed_output=detailed_output, verbose=verbose, fpccf=fpccf)
 
     return ccf
     ##########################
@@ -70,6 +71,7 @@ def get_object_rv(ccf_files,
                   bandpass = 'YJHK',
                   velocity_window = 10.,
                   dvmax_per_order = 3.0,
+                  pixel_size_in_kps = 2.3,
                   save_rdb_timeseries = True,
                   correct_rv_drift = True,
                   save_bisector_timeseries = True,
@@ -207,8 +209,6 @@ def get_object_rv(ccf_files,
     # add a measurement of the STDDEV of each mean CCF relative to the median CCF after correcting for the measured velocity. If you are going to add 'methods', add them before this line
     med_corr_ccf, corr_ccf = add_stddev_to_ccf(ccf_files, tbl, ccf_RV, corr_ccf, id_min, doplot=False)
 
-    pixel_size_in_kps = np.nanmedian(np.abs(ccf_RV[1:] - ccf_RV[:-1]))
-    
     tbl = calculate_resid_ccf_projections(ccf_files, tbl, ccf_RV, med_corr_ccf, corr_ccf, id_min, velocity_window, pixel_size_in_kps=pixel_size_in_kps)
 
     if doplot :
@@ -409,9 +409,11 @@ def bisector(rv, ccf,  low_high_cut = 0.1, figure_title = '', doplot = False, cc
         plt.plot((bisector_position-np.mean(bisector_position))*100+np.mean(bisector_position),depth, label = 'bisector * 100',
                  )
         plt.legend()
-        plt.title(figure_title)
-        plt.xlabel('Velocity (km/s)')
-        plt.ylabel('Depth')
+        plt.title(figure_title,fontsize=16)
+        plt.xlabel('Velocity (km/s)',fontsize=16)
+        plt.ylabel('Depth',fontsize=16)
+        plt.xticks(fontsize=16)
+        plt.yticks(fontsize=16)
         if ccf_plot_file !='':
             plt.savefig(ccf_plot_file)
         if showplot :
@@ -697,9 +699,11 @@ def measure_ccf_weights(
                 vmin = np.nanpercentile(rms, 3)
                 vmax = np.nanpercentile(rms, 97)
                 plt.imshow(rms, aspect='auto', vmin=vmin, vmax=vmax)
-                plt.xlabel('Nth order')
-                plt.ylabel('Nth frame')
-                plt.title('RMS of CCF relative to median')
+                plt.xlabel('Nth order',fontsize=16)
+                plt.ylabel('Nth frame',fontsize=16)
+                plt.title('RMS of CCF relative to median',fontsize=16)
+                plt.xticks(fontsize=16)
+                plt.yticks(fontsize=16)
                 if showplots:
                     plt.show()
                 plt.close(fig)
@@ -732,6 +736,8 @@ def measure_ccf_weights(
                 ax[2].plot(1/ccf_rms**2, 'go')
                 ax[2].set(xlabel='Nth order', ylabel='1/$\\sigma_{CCF}^2$')
                 plt.tight_layout()
+                plt.xticks(fontsize=16)
+                plt.yticks(fontsize=16)
                 if saveplots:
                     plt.savefig('{0}_weights.pdf'.format(batch_name))
                 if showplots:
@@ -779,6 +785,8 @@ def plot_weighted_mean_ccfs(ccf_files, ccf_RV, mean_ccf, batch_name, saveplots=F
     
     ax.set(xlabel = 'Velocity [km/s]',ylabel = 'CCF depth', title = 'Mean CCFs')
     plt.tight_layout()
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
     if saveplots :
         plt.savefig('{0}_CCFs.pdf'.format(batch_name))
     if showplots :
@@ -788,18 +796,22 @@ def plot_weighted_mean_ccfs(ccf_files, ccf_RV, mean_ccf, batch_name, saveplots=F
 def plot_median_ccfs_and_residuals(ccf_cube, med_ccf, ccf_RV, batch_name, saveplots=False, showplots=False) :
     
     plt.imshow(med_ccf, aspect = 'auto',vmin = 0.8,vmax= 1.05,extent = [np.min(ccf_RV),np.max(ccf_RV),49,0])
-    plt.xlabel('Velocity bin [km/s] ')
-    plt.ylabel('Nth order')
-    plt.title('Median CCF')
+    plt.xlabel('Velocity bin [km/s] ',fontsize=16)
+    plt.ylabel('Nth order',fontsize=16)
+    plt.title('Median CCF',fontsize=16)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
     if saveplots :
         plt.savefig('{0}_medianccf.pdf'.format(batch_name))
     if showplots :
         plt.show()
 
     plt.imshow(ccf_cube[:,:,0]-med_ccf,aspect = 'auto',vmin = -0.1,vmax= 0.1,extent = [np.min(ccf_RV),np.max(ccf_RV),49,0])
-    plt.xlabel('Velocity bin [km/s]')
-    plt.ylabel('Nth order')
-    plt.title('Sample residual CCF map')
+    plt.xlabel('Velocity bin [km/s]',fontsize=16)
+    plt.ylabel('Nth order',fontsize=16)
+    plt.title('Sample residual CCF map',fontsize=16)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
     if saveplots :
         plt.savefig('{0}_residualccf.pdf'.format(batch_name))
     if showplots :
@@ -809,9 +821,11 @@ def plot_median_ccfs_and_residuals(ccf_cube, med_ccf, ccf_RV, batch_name, savepl
 def plot_snr(tbl, batch_name, saveplots=False, showplots=False) :
 
     plt.plot(tbl['MJDATE'], tbl['EXTSN035'], 'g.')
-    plt.xlabel('MJDATE')
-    plt.ylabel('SNR for order 35\n(around 1.6 $\mu$m)')
-    plt.title('Signal-to-noise ratio')
+    plt.xlabel('MJDATE',fontsize=16)
+    plt.ylabel('SNR for order 35\n(around 1.6 $\mu$m)',fontsize=16)
+    plt.title('Signal-to-noise ratio',fontsize=16)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
     if saveplots :
         plt.savefig('{0}_snr.pdf'.format(batch_name))
     if showplots :
@@ -879,6 +893,8 @@ def plot_bisector_method(tbl, batch_name, saveplots=False, showplots=False) :
     ax[1].plot(tbl['MJDATE'], tbl['BIS_SLOPE'], 'g.')
     ax[1].set(title='Bisector slope',xlabel = 'MJDATE',ylabel = 'slope [km/s/fract. depth]')
     plt.tight_layout()
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
     if saveplots :
         plt.savefig('{0}_bisector_RV.pdf'.format(batch_name))
     if showplots :
@@ -963,6 +979,8 @@ def plot_gaussian_method(tbl, batch_name, saveplots=False, showplots=False) :
     ax[1].plot(tbl['MJDATE'], tbl['GAUSS_WIDTH']*2.354, 'g.')
     ax[1].set(title='Gaussian width',xlabel = 'MJDATE',ylabel = 'Gaussian FWHM [km/s]')
     plt.tight_layout()
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
     if saveplots :
         plt.savefig('{0}_gaussian_RV.pdf'.format(batch_name))
     if showplots :
@@ -1052,6 +1070,8 @@ def run_template_method(tbl, ccf_files, ccf_RV, mean_ccf, id_min, velocity_windo
         vmax = np.nanpercentile(corr_ccf,97)
         ax[1].imshow(corr_ccf,aspect = 'auto',vmin = vmin,vmax = vmax,extent = [0,len(ccf_files),np.min(ccf_RV),np.max(ccf_RV)])
         ax[1].set(xlabel='Nth observation',ylabel='Velocity [km/s]',title='After CCF register')
+        plt.xticks(fontsize=16)
+        plt.yticks(fontsize=16)
         if showplots :
             plt.show()
 
@@ -1095,6 +1115,8 @@ def plot_corr_ccf(ccf_files, ccf_RV, corr_ccf, batch_name, id_min, saveplots=Fal
     ax[0].set(xlabel = 'Velocity [km/s]',ylabel = 'CCF depth', title = 'Mean CCFs')
     ax[1].set(xlabel = 'Velocity [km/s]',ylabel = 'CCF depth', title = 'Mean CCFs',xlim = [ccf_RV[id_min]-10, ccf_RV[id_min]+10])
     plt.tight_layout()
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
     if saveplots :
         plt.savefig('{0}_template.pdf'.format(batch_name))
     if showplots :
@@ -1111,6 +1133,8 @@ def add_stddev_to_ccf(ccf_files, tbl, ccf_RV, mean_ccf, id_min, doplot=False) :
     med_corr_ccf = np.nanmedian(corr_ccf, axis=1)
 
     if doplot:
+        plt.xticks(fontsize=16)
+        plt.yticks(fontsize=16)
         plt.plot(ccf_RV, med_corr_ccf, color='black', alpha=0.4,label = 'median CCF', linewidth=2)
         plt.show()
 
@@ -1145,7 +1169,7 @@ def calculate_resid_ccf_projections(ccf_files, tbl, ccf_RV, med_corr_ccf, corr_c
         tbl['CCF_RESIDUAL_RMS'][i] = np.std(residual[g])
         
         # 1/dvrms -avoids division by zero
-        inv_dvrms = (np.gradient(med_corr_ccf) / np.gradient(ccf_RV))/((np.nanstd(residual) * np.sqrt(pix_scale)) )
+        inv_dvrms = (np.gradient(med_corr_ccf) / np.gradient(ccf_RV))/(np.nanstd(residual) * np.sqrt(pix_scale))
         tbl['ERROR_RV'][i] = 1 / np.sqrt(np.nansum(inv_dvrms ** 2))
         
     return tbl
@@ -1175,7 +1199,8 @@ def plot_residual_ccf(ccf_files, ccf_RV, med_corr_ccf, corr_ccf, batch_name, sav
     ax[1].set(xlabel = 'Velocity [km/s]',ylabel = 'CCF residual depth', title = 'Residual CCFs')
     plt.tight_layout()
     #plt.legend()
-    
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
     if saveplots :
         plt.savefig('{0}_residual_CCF.pdf'.format(batch_name))
     if showplots :
@@ -1186,9 +1211,11 @@ def plot_residual_ccf(ccf_files, ccf_RV, med_corr_ccf, corr_ccf, batch_name, sav
     vmin = np.nanmin(residuals)
     vmax = np.nanmax(residuals)
     plt.imshow(residuals,aspect = 'auto',vmin = vmin, vmax = vmax,extent = [np.min(ccf_RV),np.max(ccf_RV),len(ccf_files),0])
-    plt.ylabel('Nth observation')
-    plt.xlabel('Velocity [km/s]')
-    plt.title('Residual CCF')
+    plt.ylabel('Nth observation',fontsize=16)
+    plt.xlabel('Velocity [km/s]',fontsize=16)
+    plt.title('Residual CCF',fontsize=16)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
     if showplots :
         plt.show()
 
@@ -1213,8 +1240,10 @@ def save_ccf_to_fits(ccf_files, ccf_RV, med_corr_ccf, corr_ccf, output="", plot=
 
     if plot :
         plt.errorbar(ccf_RV, med_corr_ccf, yerr=ccf_err, fmt='o')
-        plt.xlabel("Velocity [km/s]")
-        plt.ylabel("CCF depth")
+        plt.xlabel("Velocity [km/s]",fontsize=16)
+        plt.ylabel("CCF depth",fontsize=16)
+        plt.xticks(fontsize=16)
+        plt.yticks(fontsize=16)
         plt.show()
 
     # create header unit
@@ -1252,6 +1281,8 @@ def plot_residual_timeseries(tbl, batch_name, saveplots=False, showplots=False) 
     plt.title('Second derivative \n activity indicator')
     plt.xlabel('Date')
     plt.ylabel('CCF residual projection on\nCCF 2nd derivative')
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
     if saveplots :
         plt.savefig('{0}_d2_activity.pdf'.format(batch_name))
     if showplots :
@@ -1486,6 +1517,8 @@ def fitorbit(bjd, rvs, rverrs, guess=[], fixed_period=True, period=10., plot=Tru
         ax[1].set(xlabel = 'BJD-2400000', ylabel = 'Residuals [km/s]')
         plt.tight_layout()
         #plt.savefig((options.input).replace('.rdb','.png'))
+        plt.xticks(fontsize=16)
+        plt.yticks(fontsize=16)
         plt.show()
 
     loc = {}
