@@ -146,8 +146,16 @@ def load_array_of_spirou_spectra(inputdata, rvfile="", correct_blaze=True, apply
 
         spectrum['DATE'] = hdr['DATE']
         #spectrum['BJD_mid'] = hdr["BJD"] + (hdr['MJDEND'] - hdr['MJD-OBS']) / 2.
-        spectrum['BJD_mid'] = hdr['BJD']
-        spectrum['BERV'] = float(hdr['BERV'])
+        
+        if np.isnan(float(hdr['BJD'])) :
+            spectrum['BJD_mid'] = hdr['BJD_EST']
+        else :
+            spectrum['BJD_mid'] = hdr['BJD']
+            
+        if np.isnan(float(hdr['BERV'])) :
+            spectrum['BERV'] = hdr['BERV_EST']
+        else :
+            spectrum['BERV'] = hdr['BERV']
 
         spectrum['airmass'] = hdr['AIRMASS']
         spectrum['exptime'] = hdr['EXPTIME']
@@ -931,6 +939,7 @@ def calculate_template(flux_arr, wl=[], fit=False, median=True, subtract=False, 
         plot_template_products(loc, pfilename=pfilename)
     
     return loc
+
 
 
 def plot_2d(x, y, z, model=[], LIM=None, LAB=None, z_lim=None, title="", pfilename="", cmap="gist_heat"):

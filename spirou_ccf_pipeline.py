@@ -23,6 +23,9 @@
     
     Example using an existing fiber C drift rdb data file to calculate the drifts
     python ~/spirou-tools/spirou-ccf/spirou_ccf_pipeline.py --input=2??????t.fits --sci_drift_data=TOI-1759_FiberC__smart_fp_mask.mas__False__0.6.132__YJHK_fpdrift.rdb -pvd
+    
+    Example using an existing cal drift rdb data file to calculate the drifts
+    python ~/spirou-tools/spirou-ccf/spirou_ccf_pipeline.py --input=2??????t.fits --cal_drift_data=fpdrift.rdb -pvd
     """
 
 __version__ = "1.0"
@@ -63,7 +66,7 @@ def run_spirou_ccf(inputdata, ccf_mask, drifts, telluric_rv=False, use_efits=Fal
         3. Calculate the CCF for each reduced spectrum in the time series (including star, and tellurics)
         4. Run the CCF template matching analysis on the CCF time series data.
         """
-    reduced = reduc_lib.reduce_timeseries_of_spectra(inputdata, ccf_mask, rvfile="", use_efits=use_efits, fix_gaps=False, max_gap_size=5.0, nsig_clip=4.0, align_spectra=True, vel_sampling=vel_sampling, min_window_size=float(ccf_width), tel_mask=tel_mask, h2o_mask=h2o_mask, telluric_rv=telluric_rv, ccf_width=ccf_width, source_rv=source_rv, output_template=output_template, interp_with_gp=interp_with_gp, verbose=verbose)
+    reduced = reduc_lib.reduce_timeseries_of_spectra(inputdata, ccf_mask, rvfile="", use_efits=use_efits, fix_gaps=False, max_gap_size=3.0, nsig_clip=5.0, align_spectra=True, vel_sampling=vel_sampling, min_window_size=float(ccf_width), tel_mask=tel_mask, h2o_mask=h2o_mask, telluric_rv=telluric_rv, ccf_width=ccf_width, source_rv=source_rv, output_template=output_template, interp_with_gp=interp_with_gp, verbose=verbose)
     
     fluxkey, fluxerrkey = reduced["fluxkey"], reduced["fluxerrkey"]
     waveskey, wavekey = reduced["waveskey"], reduced["wavekey"]
@@ -247,14 +250,14 @@ def run_spirou_ccf(inputdata, ccf_mask, drifts, telluric_rv=False, use_efits=Fal
         obj = sci_ccf["header"]["OBJECT"].replace(" ","")
         drs_version = sci_ccf["header"]['VERSION']
 
-        ccf2rv.run_ccf_analysis(sci_ccf_file_list, ccf_mask, obj=obj, drs_version=drs_version, snr_min=10., velocity_window=velocity_window, dvmax_per_order=vel_sampling, sanit=False, correct_rv_drift=True, save_ccf_fitsfile=True, exclude_orders = exclude_orders, plot=plot, verbose=options.verbose)
+        ccf2rv.run_ccf_analysis(sci_ccf_file_list, ccf_mask, obj=obj, drs_version=drs_version, snr_min=10., velocity_window=velocity_window, pixel_size_in_kps=vel_sampling, dvmax_per_order=vel_sampling, sanit=False, correct_rv_drift=True, save_ccf_fitsfile=True, exclude_orders = exclude_orders, plot=plot, verbose=options.verbose)
 
         if telluric_rv :
             tell_velocity_window = 1.5*np.nanmedian(mean_tell_fwhm)
-            ccf2rv.run_ccf_analysis(tell_ccf_file_list, tel_mask, obj=obj, drs_version=drs_version, snr_min=10.,velocity_window=tell_velocity_window, dvmax_per_order=vel_sampling, sanit=False, correct_rv_drift=False, save_ccf_fitsfile=False, plot=False, verbose=options.verbose)
+            ccf2rv.run_ccf_analysis(tell_ccf_file_list, tel_mask, obj=obj, drs_version=drs_version, snr_min=10.,velocity_window=tell_velocity_window, pixel_size_in_kps=vel_sampling, dvmax_per_order=vel_sampling, sanit=False, correct_rv_drift=False, save_ccf_fitsfile=False, plot=False, verbose=options.verbose)
             
             h2o_velocity_window = 1.5*np.nanmedian(mean_h2o_fwhm)
-            ccf2rv.run_ccf_analysis(h2o_ccf_file_list, h2o_mask, obj=obj, drs_version=drs_version, snr_min=10.,velocity_window=h2o_velocity_window, dvmax_per_order=vel_sampling, sanit=False, correct_rv_drift=False, save_ccf_fitsfile=False, plot=False, verbose=options.verbose)
+            ccf2rv.run_ccf_analysis(h2o_ccf_file_list, h2o_mask, obj=obj, drs_version=drs_version, snr_min=10.,velocity_window=h2o_velocity_window, pixel_size_in_kps=vel_sampling, dvmax_per_order=vel_sampling, sanit=False, correct_rv_drift=False, save_ccf_fitsfile=False, plot=False, verbose=options.verbose)
 #-- end of spirou_ccf routine
 
 parser = OptionParser()

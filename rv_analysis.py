@@ -70,7 +70,7 @@ for i in range(len(rv_files)):
     loc_bjd, loc_rv, loc_rverr = ccf2rv.read_rv_time_series(rv_files[i])
     #plt.errorbar(loc_bjd, loc_rv, yerr=loc_rverr, fmt='o', color='r', alpha=0.4)
     if options.combine_epochs :
-        loc_bjd, loc_rv, loc_rverr = ccf2rv.combine_rvs_per_epoch(loc_bjd, loc_rv, loc_rverr, one_epoch_size=float(options.binsize), median=False, nsig=5)
+        loc_bjd, loc_rv, loc_rverr = ccf2rv.combine_rvs_per_epoch(loc_bjd, loc_rv, loc_rverr, one_epoch_size=float(options.binsize), median=True, nsig=5)
         #plt.errorbar(loc_bjd, loc_rv, yerr=loc_rverr, fmt='o', color='k')
     #plt.show()
     bjd.append(loc_bjd)

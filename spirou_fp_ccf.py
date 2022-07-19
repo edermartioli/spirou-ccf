@@ -36,7 +36,7 @@ import astropy.io.fits as fits
 from scipy import constants
 
 spirou_ccf_dir = os.path.dirname(__file__)
-fp_mask = os.path.join(spirou_ccf_dir,'ccf_masks/smart_fp_mask.mas')
+fp_mask = os.path.join(spirou_ccf_dir,'ccf_masks/montreal_masks/smart_fp_mask.mas')
 
 parser = OptionParser()
 parser.add_option("-i", "--input", dest="input", help="FP e2ds data pattern",type='string',default="")
