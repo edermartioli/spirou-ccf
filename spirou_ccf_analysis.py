@@ -15,7 +15,7 @@
     -> to run CCF analysis on FP data:
     python ~/spirou-tools/spirou-ccf/spirou_ccf_analysis.py --pattern=CCFTABLE*.fits --bandpass="YJHK" --min_snr=20 -pvc --velocity_window=3.5
     """
-
+    
 __version__ = "1.0"
 
 __copyright__ = """
@@ -68,8 +68,8 @@ for i in range(len(exclude_orders)) :
 # detect and organize collection of files based on: object, ccfmask, sanitize, and DRS version
 ccf_collections = ccf2rv.create_collections(ccf_files, fpccf=options.fpccf, verbose=options.verbose)
 
-save_plots=False
-save_csv_table_of_results = False
+save_plots = False
+save_csv_table_of_results = True
 save_ccf_cube = False
 save_weight_table = False
 save_ccf_fitsfile = True
@@ -88,7 +88,7 @@ for key in ccf_collections["modes"]:
         print("Processing collection {0} containing {1} files".format(key, len(list_of_files)))
 
     if len(list_of_files) > 1:
-        tbl = ccf2rv.get_object_rv(list_of_files, collection_key=key, method=options.method, exclude_orders = exclude_orders, snr_min=float(options.min_snr), bandpass = options.bandpass, velocity_window = options.velocity_window, dvmax_per_order = 3.0, save_rdb_timeseries = True, correct_rv_drift=options.correct_drift, save_csv_table_of_results = save_csv_table_of_results, save_ccf_cube = save_ccf_cube, save_weight_table = save_weight_table, doplot=options.plot, showplots=options.plot, save_ccf_fitsfile=save_ccf_fitsfile, saveplots=save_plots, verbose=options.verbose,fpccf=options.fpccf)
+        tbl = ccf2rv.get_object_rv(list_of_files, collection_key=key, method=options.method, exclude_orders = exclude_orders, snr_min=float(options.min_snr), bandpass = options.bandpass, velocity_window = options.velocity_window, dvmax_per_order = 3.0, save_rdb_timeseries=True, correct_rv_drift=options.correct_drift, save_csv_table_of_results = save_csv_table_of_results, save_ccf_cube = save_ccf_cube, save_weight_table = save_weight_table, doplot=options.plot, showplots=options.plot, save_ccf_fitsfile=save_ccf_fitsfile, saveplots=save_plots, verbose=options.verbose,fpccf=options.fpccf)
     else :
         print("Could not run analysis for n={} files".format(len(list_of_files)))
         continue

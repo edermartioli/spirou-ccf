@@ -203,7 +203,8 @@ def get_object_rv(ccf_files,
         # Calculate systemic velocities using gaussian method -- why not from template?
         tbl = add_gaussian_systemic_velocity(tbl, ccf_RV, med_corr_ccf)
     else :
-        # Calculate systemic velocities using bisector method -- why not from template?
+        # Calculate systemic velocities using bisector method -- why not from template
+            
         tbl = add_bisector_systemic_velocity(tbl, ccf_RV, med_corr_ccf, low_high_cut=0.3, object=object, saveplots=saveplots, showplots=showplots, doplot=doplot)
         
     # add a measurement of the STDDEV of each mean CCF relative to the median CCF after correcting for the measured velocity. If you are going to add 'methods', add them before this line
@@ -225,7 +226,7 @@ def get_object_rv(ccf_files,
     else :
         output_ccf_fitsfile = ""
         
-    ccf_fits_hdu = save_ccf_to_fits(ccf_files, ccf_RV, med_corr_ccf, corr_ccf, output=output_ccf_fitsfile, plot=doplot)
+    ccf_fits_hdu = save_ccf_to_fits(ccf_files, ccf_RV, med_corr_ccf, corr_ccf, output=output_ccf_fitsfile, rvs=tbl['RV'], plot=doplot)
 
     if doplot :
         plot_residual_timeseries(tbl, batch_name, saveplots=saveplots, showplots=showplots)
@@ -370,7 +371,7 @@ def bisector(rv, ccf,  low_high_cut = 0.1, figure_title = '', doplot = False, cc
     #print(imin,type(imin))
 
     # get point where the derivative changes sign at the edge of the line
-    # the bisector is ambiguous passed this poind
+    # the bisector is ambiguous passed this point
     width_blue =  imin - np.max(np.where(np.gradient(ccf[:imin])>0))
     #print(width_blue)
     width_red = np.min(np.where(np.gradient(ccf[imin:])<0))
@@ -384,7 +385,7 @@ def bisector(rv, ccf,  low_high_cut = 0.1, figure_title = '', doplot = False, cc
     ccf -= np.min(ccf)
 
     # set continuum to one
-    ccf /= np.min( ccf[ [imin - width,imin + width] ])
+    ccf /= np.min( ccf[ [imin - width, imin + width] ])
 
     # interpolate each side of the ccf slope at a range of depths
     depth = np.arange(low_high_cut,1-low_high_cut,0.001)
@@ -1010,7 +1011,7 @@ def run_template_method(tbl, ccf_files, ccf_RV, mean_ccf, id_min, velocity_windo
 
     per_ccf_rms = np.ones(len(ccf_files))
     while (rms_rv_ite>1e-5) and (ite<nite_max):
-        if ite ==0:
+        if ite == 0 :
             tbl['RV'] = 0
 
         w = 1/per_ccf_rms**2
@@ -1022,18 +1023,19 @@ def run_template_method(tbl, ccf_files, ccf_RV, mean_ccf, id_min, velocity_windo
         # normalize continuum to 1
         continuum = np.abs(ccf_RV-ccf_RV[id_min])>velocity_window
         med_corr_ccf/=np.nanmedian(med_corr_ccf[continuum])
-
+        
         fit = np.polyfit(ccf_RV[continuum], med_corr_ccf[continuum], 2)
         corr = np.polyval(fit, ccf_RV)
         corr -= np.nanmean(corr)
         med_corr_ccf -= corr
 
         for i in range(len(ccf_files)):
-            spline = ius(ccf_RV,mean_ccf[:,i],ext=3,k=5)
+            spline = ius(ccf_RV,mean_ccf[:,i]/np.nanmedian(mean_ccf[:,i][continuum]),ext=3,k=5)
             corr_ccf[:,i] = spline(ccf_RV+tbl['RV'][i])
-
+    
             # correcting median of CCF
             med =  np.nanmedian(corr_ccf[:,i] - med_corr_ccf)
+
             mean_ccf[:, i] -= med
 
             # correcting depth of CCF
@@ -1191,7 +1193,8 @@ def plot_residual_ccf(ccf_files, ccf_RV, med_corr_ccf, corr_ccf, batch_name, sav
         ax[0].plot(ccf_RV,corr_ccf[:,i],color = color, alpha = 0.2)
         
         ax[1].plot(ccf_RV,residual+1,color = color,alpha = 0.2)
-    
+        #ax[1].plot(ccf_RV,residual+1+i*0.05,color = color,alpha = 0.2)
+        
         residuals.append(residual)
 
     residuals = np.array(residuals, dtype=float)
@@ -1220,12 +1223,24 @@ def plot_residual_ccf(ccf_files, ccf_RV, med_corr_ccf, corr_ccf, batch_name, sav
         plt.show()
 
 
-def save_ccf_to_fits(ccf_files, ccf_RV, med_corr_ccf, corr_ccf, output="", plot=False) :
+def save_ccf_to_fits(ccf_files, ccf_RV, med_corr_ccf, corr_ccf, fwhm=10, rvs=[], output="", plot=False) :
     '''
         Function to save CCF data to FITS file
         '''
     
+    # create header unit
+    header = fits.Header()
+    header.set('ORIGIN', "ccf2rv")
+
+    # create primary hdu
+    primary_hdu = fits.PrimaryHDU(header=header)
+    hdus = [primary_hdu]
+
     residuals = []
+    
+    rv = 0
+    if len(rvs) :
+        rv = np.nanmedian(rvs)
     
     for i in range(len(ccf_files)):
         residual = corr_ccf[:,i] - med_corr_ccf
@@ -1233,7 +1248,62 @@ def save_ccf_to_fits(ccf_files, ccf_RV, med_corr_ccf, corr_ccf, output="", plot=
             color = [i/len(ccf_files),1-i/len(ccf_files),1-i/len(ccf_files)]
             plt.plot(ccf_RV,corr_ccf[:,i],color = color, alpha = 0.2)
         residuals.append(residual)
+        
+        mask = (ccf_RV < (rv - 2*fwhm)) | (ccf_RV > (rv + 2*fwhm))
+            
+        sigma = np.nanstd(residual[mask])
+        
+        odo = os.path.basename(ccf_files[i]).split("_")[1]
+        #print(odo,i,sigma)
+            
+        ccf_err = np.full_like(ccf_RV, sigma)
+        
+        # set extension hdu to save data
+        ext_data = np.asarray(ccf_RV, dtype='float32')
     
+        cols = []
+        cols.append(fits.Column(name='RV', format='E', array=ccf_RV))
+        cols.append(fits.Column(name='CCF', format='E', array=corr_ccf[:,i]))
+        cols.append(fits.Column(name='CCFERR', format='E', array=ccf_err))
+
+        orig_header = fits.getheader(ccf_files[i],1)
+            
+        # create header unit
+        header = fits.Header()
+        header["FILENAME"] = orig_header["FILENAME"]
+        header["DATE"] = orig_header["DATE"]
+        header["OBSTYPE"] = orig_header["OBSTYPE"]
+        header["EXPTIME"] = orig_header["EXPTIME"]
+        header["OBJECT"] = orig_header["OBJECT"]
+        header["MJDATE"] = orig_header["MJDATE"]
+        header["MJDEND"] = orig_header["MJDEND"]
+        header["EQUINOX"] = orig_header["EQUINOX"]
+        header["RADECSYS"] = orig_header["RADECSYS"]
+        header["RA"] = orig_header["RA"]
+        header["DEC"] = orig_header["DEC"]
+        header["RA_DEG"] = orig_header["RA_DEG"]
+        header["DEC_DEG"] = orig_header["DEC_DEG"]
+        header["OBJNAME"] = orig_header["OBJNAME"]
+        header["OBJMAG"] = orig_header["OBJMAG"]
+        header["OBJEQUIN"] = orig_header["OBJEQUIN"]
+        header["OBJRADEC"] = orig_header["OBJRADEC"]
+        header["OBJRA"] = orig_header["OBJRA"]
+        header["OBJDEC"] = orig_header["OBJDEC"]
+        header["OBJRAPM"] = orig_header["OBJRAPM"]
+        header["OBJDECPM"] = orig_header["OBJDECPM"]
+        header["AIRMASS"] = orig_header["AIRMASS"]
+        header["OBJTEMP"] = orig_header["OBJTEMP"]
+        header["EXTSN036"] = orig_header["EXTSN036"]
+        header["BERV"] = orig_header["BERV"]
+        header["BJD"] = orig_header["BJD"]
+        header["RV_OBJ"] = orig_header["RV_OBJ"]
+
+        # set up hdu for all data extensions
+        hdu = fits.BinTableHDU.from_columns(cols,name="CCF_{}_{:04d}".format(odo,i),header=header)
+        
+        hdus.append(hdu)
+
+
     residuals = np.array(residuals, dtype=float)
 
     ccf_err = np.nanmedian(np.abs(residuals), axis=0) / 0.67449
@@ -1246,13 +1316,6 @@ def save_ccf_to_fits(ccf_files, ccf_RV, med_corr_ccf, corr_ccf, output="", plot=
         plt.yticks(fontsize=16)
         plt.show()
 
-    # create header unit
-    header = fits.Header()
-    header.set('ORIGIN', "ccf2rv")
-    
-    # create primary hdu
-    primary_hdu = fits.PrimaryHDU(header=header)
-    
     # set extension hdu to save data
     ext_data = np.asarray(ccf_RV, dtype='float32')
     
@@ -1262,10 +1325,12 @@ def save_ccf_to_fits(ccf_files, ccf_RV, med_corr_ccf, corr_ccf, output="", plot=
     cols.append(fits.Column(name='CCFERR', format='E', array=ccf_err))
 
     # set up hdu for all data extensions
-    hdu = fits.BinTableHDU.from_columns(cols,name='DATA')
+    hdu = fits.BinTableHDU.from_columns(cols,name='CCF_TEMPLATE')
+    
+    hdus.append(hdu)
     
     # set up hdulist with primary + data HDUs
-    fits_format = fits.HDUList([primary_hdu, hdu])
+    fits_format = fits.HDUList(hdus)
 
     # write output fits file
     if output != "" :
